@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { clampTone, oklchToSrgb, parseColor, srgbToOklch, TONE_RANGE } from "./color";
+import { DEFAULT_COLORS } from "./graph";
+import { clampTone, oklchToSrgb, parseColor, sameColor, srgbToOklch, TONE_RANGE } from "./color";
 
 const lch = (hex: string) => srgbToOklch(parseColor(hex));
 
@@ -56,5 +57,18 @@ describe("clampTone", () => {
   });
   it("accepts numbers", () => {
     expect(clampTone(0x3ddc6a)).toEqual(clampTone("#3ddc6a"));
+  });
+});
+
+describe("the default colours take the tuned path", () => {
+  it("are recognised however they are written, and nothing near them is", () => {
+    for (const layer of ["top", "bottom"] as const) for (const theme of ["light", "dark"] as const) {
+      const [low, high] = DEFAULT_COLORS[layer][theme];
+      const asHex = (n: number | string) => (typeof n === "number" ? `#${n.toString(16).padStart(6, "0")}` : n);
+      expect(sameColor(low, asHex(low))).toBe(true);
+      expect(sameColor(high, asHex(high))).toBe(true);
+      expect(sameColor(high, low)).toBe(false);
+    }
+    expect(sameColor("#3ddc6a", 0x0fbf3e)).toBe(false);
   });
 });

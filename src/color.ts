@@ -41,7 +41,7 @@ export function oklchToSrgb({ l: L, c, h }: Oklch): [number, number, number] | n
 }
 
 /** The range a colour is brought into (OKLCH lightness of the busiest day's glass; its quiet day's is `LOW_SHARE` of it). */
-export const TONE_RANGE = { lMin: 0.64, lMax: 0.8, cMax: 0.2, achromatic: 0.03 };
+export const TONE_RANGE = { lMin: 0.6, lMax: 0.72, cMax: 0.19, achromatic: 0.03 };
 const LOW_SHARE = 0.74;
 
 const hex = (rgb: [number, number, number]) => `#${rgb.map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("")}`;
@@ -70,4 +70,11 @@ export function clampTone(input: ColorInput): [string, string] {
   const grey = c < achromatic;
   const C = grey ? c * 0.5 : Math.min(cMax, c);
   return [hex(fit(L * LOW_SHARE, C * 0.92, h)), hex(fit(L, C, h))];
+}
+
+/** Whether two colours are the same one (by their 8-bit channels), whatever way each is written. */
+export function sameColor(a: ColorInput, b: ColorInput): boolean {
+  const x = parseColor(a).map((v) => Math.round(v * 255));
+  const y = parseColor(b).map((v) => Math.round(v * 255));
+  return x.every((v, i) => v === y[i]);
 }

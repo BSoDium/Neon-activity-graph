@@ -7,7 +7,7 @@ const DATA_URL = "https://raw.githubusercontent.com/BSoDium/Neon-activity-graph/
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const host = $("graph");
 const stage = $("stage");
-const sub = $("sub");
+const live$ = $("live");
 const narrow = matchMedia("(max-width: 767px)");
 const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -20,31 +20,18 @@ const letters = [...TITLE].map((ch, i) => {
   s.textContent = ch;
   return s;
 });
-$("title-letters").append(...letters);
+// (the HTML has the title as plain text, so the first paint has its height; the letters replace it in place)
+$("title-letters").replaceChildren(...letters);
 let titleOn = false;
+// The title settles in calmly (a soft, staggered fade): only the graph's own start-up flickers.
 const switchOn = () => {
   if (titleOn) return;
   titleOn = true;
   if (reduced.matches) return void letters.forEach((l) => (l.style.opacity = ""));
-  // Each tube has its own stutter, over the 2.6 s the graph's own start-up takes: a few false starts, gaps, then on (a tiny brightness overshoot) and steady.
-  let seed = 11;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  letters.forEach((l, i) => {
-    const start = 0.08 + rnd() * 0.5;
-    const stutters = 2 + Math.floor(rnd() * 3);
-    const frames: Keyframe[] = [{ opacity: 0.1, offset: 0 }];
-    let t = start;
-    for (let k = 0; k < stutters; k++) {
-      frames.push({ opacity: 0.1, offset: t }, { opacity: 0.45 + rnd() * 0.5, offset: t + 0.01 }, { opacity: 0.1, offset: t + 0.02 + rnd() * 0.04 });
-      t += 0.05 + rnd() * 0.12;
-    }
-    frames.push({ opacity: 0.1, offset: Math.min(0.88, t) }, { opacity: 1.15 > 1 ? 1 : 1, offset: Math.min(0.9, t + 0.02), filter: "brightness(1.6)" }, { opacity: 1, offset: 1, filter: "brightness(1)" });
-    l.animate(frames.sort((a, b) => (a.offset as number) - (b.offset as number)), { duration: 2600 + i * 40, fill: "both", easing: "linear" });
-  });
+  letters.forEach((l, i) => l.animate([{ opacity: 0, filter: "blur(4px)" }, { opacity: 1, filter: "blur(0)" }], { duration: 900, delay: 80 + i * 45, fill: "both", easing: "cubic-bezier(.2,.7,.2,1)" }));
 };
-// (off until then: faint, as an unlit tube is)
-if (!reduced.matches) letters.forEach((l) => (l.style.opacity = "0.1"));
-// (if the graph never comes, the title still lights)
+if (!reduced.matches) letters.forEach((l) => (l.style.opacity = "0"));
+// (if the graph never comes, the title still shows)
 const fallback = window.setTimeout(switchOn, 3500);
 
 // --- colours: two layers, a preset or a swatch each; kept in the URL hash ---
@@ -119,8 +106,9 @@ paintPage();
 mount();
 narrow.addEventListener("change", mount);
 const { data, live, at } = await load();
+(window as unknown as { __nag?: unknown }).__nag = location.search.includes("debug") ? { get graph() { return graph; } } : undefined;
 current = data;
-sub.textContent = live ? `Live data, updated ${new Date(at ?? Date.now()).toLocaleDateString()}.` : "Generated sample data.";
+live$.textContent = live ? `Live data · updated ${new Date(at ?? Date.now()).toLocaleDateString()}` : "Sample data";
 (graph as ActivityGraph | null)?.update(data);
 
 // --- the panels: "How it works" and "Colours" (keyboard accessible: Escape closes, so does a click outside) ---

@@ -1,5 +1,6 @@
 import type { BufferGeometry, Color, Mesh } from "three";
 import { createGroundLight, loadCausticTemplates, type CausticTemplates, type GlassLight } from "./ground-light";
+import { clampTone } from "./color";
 import { layoutGraph, type Matrix } from "./layout";
 import { createNeon } from "./neon";
 import { renderSize } from "./size";
@@ -641,6 +642,11 @@ void main() {
           const [low, high] = colorOf(layer, dark);
           const [dl, dh] = DEFAULT_COLORS[layer][dark ? "dark" : "light"];
           stock[layer] = new THREE.Color(low).equals(new THREE.Color(dl)) && new THREE.Color(high).equals(new THREE.Color(dh));
+          // (any other colour is brought into the range where the rods, the glass and the ground light look right: see `clampTone`)
+          if (!stock[layer]) {
+            const [lo, hi] = clampTone(high);
+            return [new THREE.Color(lo), new THREE.Color(hi)];
+          }
           return [new THREE.Color(low), new THREE.Color(high)];
         };
         blocks.add(build({ bottom: layout.bottom, top: layout.top }, { bottom: pair("bottom"), top: pair("top") }, dark));

@@ -1,4 +1,4 @@
-import type { BufferGeometry, Color, Mesh } from "three";
+import type { BufferGeometry, Color, Group, Mesh } from "three";
 import { createGroundLight, loadCausticTemplates, type CausticTemplates, type GlassLight } from "./ground-light";
 import { clampTone, sameColor } from "./color";
 import { layoutGraph, type Matrix } from "./layout";
@@ -771,7 +771,8 @@ void main() {
       interface PickBox { cell: number; x: number; z: number; y0: number; y1: number; pit?: boolean }
       let picks: PickBox[] = [];
       const LIFT = 0.04;
-      const build = (stack: { bottom: Matrix; top: Matrix }, tones: { bottom: [Color, Color]; top: [Color, Color] }, dark: boolean) => {
+      // The scene's blocks, built in steps: the generator stops (`yield`) every few blocks, so that its runner (`runBuild`) can give the page back its main thread between them; run in one go it was a pause of a second on a phone.
+      const build = function* (stack: { bottom: Matrix; top: Matrix }, tones: { bottom: [Color, Color]; top: [Color, Color] }, dark: boolean): Generator<void, Group> {
         const tb0 = performance.now();
         picks = [];
         let tileShape = null as BufferGeometry | null;
@@ -799,7 +800,9 @@ void main() {
           tallest = Math.max(tallest, y0 + h);
           return y0 + h;
         };
-        stack.top.cells.forEach((g, i) => {
+        for (let i = 0; i < stack.top.cells.length; i++) {
+          const g = stack.top.cells[i]!;
+          if (i % 48 === 47) yield;
           const w = stack.bottom.cells[i]!;
           const { x, z } = at(g.week, g.day);
           if (w.value <= 0 && g.value <= 0) {
@@ -858,12 +861,12 @@ void main() {
             rims.push(rim);
             pitRims.push({ geom: rim, x, z });
             picks.push({ cell: i, x, z, y0: 0, y1: 0.04, pit: true });
-            return;
+            continue;
           }
           let y = 0;
           if (w.value > 0) y = layer(i, "bottom", x, z, 0, w.t, tones.bottom) + LIFT;
           if (g.value > 0) layer(i, "top", x, z, y, g.t, tones.top);
-        });
+        }
         let blockIndex = 0;
         neonNeighbours = [];
         // (dark) the light of a rod that has glass in front of it, nearer the camera, is dimmed by that glass: a clump of bright blocks one in front of the other does not add up to one overexposed blob (the camera never moves, so it is known beforehand)
@@ -898,7 +901,9 @@ void main() {
             behindTint.set(q, new THREE.Color(1, 1, 1).lerp(mean, Math.min(1, cv) * LIGHT_BEHIND_TINT));
           });
         }
+        let made = 0;
         for (const sp of specs) {
+          if (++made % 24 === 0) yield;
           const { src, x, z, y0, h, t, hue: hue0 } = sp;
           // (`hue` is the glass's: `rodColor` lets a white glass be tainted by the lights around it; the rod in the middle (`hue0`) is always the light's own colour)
           let hue = hue0;
@@ -1014,12 +1019,14 @@ void main() {
             rc.needsUpdate = true;
           });
         }
+        yield;
         const tb1 = performance.now();
         const group = new THREE.Group();
         const groundGroup = groundLayers(stack, tones, dark, page);
         pitLight = (groundGroup.userData.setLevels as typeof pitLight) ?? null;
         group.add(groundGroup);
         const tb2 = performance.now();
+        yield;
         rimLight = null;
         if (tiles.length) {
           const tile = new THREE.Mesh(mergeGeometries(tiles), tileUnlit);
@@ -1054,6 +1061,7 @@ void main() {
         }
         const materials: import("three").MeshPhysicalMaterial[] = [];
         for (const [key, list] of shellsBy) {
+          yield;
           const [src, tier] = shellTier.get(key)!;
           const mat = blockMaterial.clone();
           // (development only, `?wireframe`: the glass as a wire cage, to check that the rod is centred in it)
@@ -1140,18 +1148,21 @@ void main() {
       const blocks = new THREE.Group();
       scene.add(blocks);
       const ground0 = () => ((ground.material as import("three").ShadowMaterial).opacity = isDark() ? 0 : 0.05);
-      const buildBlocks = () => {
-        showMat.uniforms.bloom!.value = isDark() ? (customOn() ? 0.4 : 1) : 0;
-        showMat.uniforms.veil!.value = customOn() ? 0.75 : 0;
-        // night: no sun and no room, the only light is what the days give out
-        scene.environmentIntensity = isDark() ? 0 : 0.9;
-        sun.intensity = isDark() ? 0 : 2.2;
-        ground0();
-        blocks.traverse((o) => {
-          (o as Mesh).geometry?.dispose();
-          (o.userData.dispose as (() => void) | undefined)?.();
-        });
-        blocks.clear();
+      // (a build in progress: its number, so that a newer one (a theme change, new colours) makes the older stop; and whether one is running, so that no frame is drawn of a scene half built)
+      let buildToken = 0;
+      let building = false;
+      /** How long a step of the build may hold the main thread before the page gets it back (ms). */
+      const BUILD_SLICE = 12;
+      /** Builds the blocks in steps, a few milliseconds each, the page getting its main thread back between them; the old blocks stay until the new ones are all there, then `done` runs. */
+      const buildBlocks = (done: () => void) => {
+        const token = ++buildToken;
+        building = true;
+        // (the lights must not change while the blocks they light are being replaced: the neon and the selection are stopped, `done` starts them again)
+        stopNeon();
+        window.clearTimeout(focusTimer);
+        window.clearTimeout(focusRaf);
+        cancelAnimationFrame(raf);
+        raf = 0;
         const dark = isDark();
         const pair = (layer: "top" | "bottom"): [Color, Color] => {
           const [low, high] = colorOf(layer, dark);
@@ -1164,7 +1175,34 @@ void main() {
           }
           return [new THREE.Color(low), new THREE.Color(high)];
         };
-        blocks.add(build({ bottom: layout.bottom, top: layout.top }, { bottom: pair("bottom"), top: pair("top") }, dark));
+        const steps = cm(() => build({ bottom: layout.bottom, top: layout.top }, { bottom: pair("bottom"), top: pair("top") }, dark));
+        const step = () => {
+          if (cancelled || token !== buildToken) return;
+          const t = performance.now();
+          const result = cm(() => {
+            let r = steps.next();
+            while (!r.done && performance.now() - t < BUILD_SLICE) r = steps.next();
+            return r;
+          });
+          if (!result.done) return void window.setTimeout(step, 0);
+          cm(() => {
+            showMat.uniforms.bloom!.value = dark ? (customOn() ? 0.4 : 1) : 0;
+            showMat.uniforms.veil!.value = customOn() ? 0.75 : 0;
+            // night: no sun and no room, the only light is what the days give out
+            scene.environmentIntensity = dark ? 0 : 0.9;
+            sun.intensity = dark ? 0 : 2.2;
+            ground0();
+            blocks.traverse((o) => {
+              (o as Mesh).geometry?.dispose();
+              (o.userData.dispose as (() => void) | undefined)?.();
+            });
+            blocks.clear();
+            blocks.add(result.value);
+            building = false;
+            done();
+          });
+        };
+        step();
       };
 
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshBasicMaterial({ color: pageColour() }));
@@ -1412,6 +1450,8 @@ void main(){
       let blendFloor = 0;
       let jitter = 0;
       const frameBody = (count = 1) => {
+        // (no frame of a scene half built: the build's end starts the frames again)
+        if (building) return void (raf = 0);
         raf = 0;
         const f0 = performance.now();
         for (let c = 0; c < count; c++) {
@@ -1528,6 +1568,8 @@ void main(){
       let focusRaf = 0;
       let focusTimer = 0;
       const applyLevels = (levels: ArrayLike<number>) => {
+        // (the blocks the levels are for are being replaced)
+        if (building) return;
         lastLevels = levels;
         const n = neonBlocks.length;
         if (effective.length !== n) effective = new Float32Array(n).fill(1);
@@ -1581,7 +1623,7 @@ void main(){
       const GHOST = 0.12;
       const focusOn = (cell: number, ghosts: number[] = []) => {
         window.clearTimeout(focusTimer);
-        if (!focusCtl) return;
+        if (!focusCtl || building) return;
         focusTimer = window.setTimeout(() => {
           for (let i = 0; i < focusTo.length; i++) focusTo[i] = cell < 0 ? 1 : neonBlocks[i]!.cell === cell ? Math.min(FOCUS_MAX_GAIN, Math.max(FOCUS_ON, FOCUS_MIN_PEAK / Math.max(neonBlocks[i]!.peak, 1e-3))) : ghosts.includes(neonBlocks[i]!.cell) ? GHOST : FOCUS_OFF;
           window.clearTimeout(focusRaf);
@@ -1666,8 +1708,11 @@ void main(){
           ctl.update(half);
         }
       };
-      buildBlocks();
-      prepareNeon();
+      // (the first picture: drawn once the blocks are all built, the start-up prepared with them)
+      buildBlocks(() => {
+        prepareNeon();
+        restart();
+      });
       // --- hovering: the day under the pointer (or the key) ---
       const dom = renderer.domElement;
       const ray = new THREE.Raycaster();
@@ -1889,9 +1934,10 @@ void main(){
           void wantTemplates().then(() => !cancelled && rethink(recolour));
           return;
         }
-        buildBlocks();
-        prepareNeon(recolour);
-        restart();
+        buildBlocks(() => {
+          prepareNeon(recolour);
+          restart();
+        });
       };
       // (`theme: "auto"` follows the system's)
       const onScheme = () => st.theme === "auto" && rethink(false);

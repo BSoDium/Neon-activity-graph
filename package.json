@@ -1,6 +1,6 @@
 {
   "name": "neon-activity-graph",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A 3D glass-and-neon activity graph (GitHub contributions, coding time, anything one number a day) in three.js, with a start-up like a gas tube sign. Framework-agnostic, with a React wrapper.",
   "keywords": [
     "three.js",

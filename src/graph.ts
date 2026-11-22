@@ -101,12 +101,12 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       renderer.setClearColor(0x000000, 0);
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFShadowMap;
-      el.appendChild(renderer.domElement);
-      // (absolute, so that the canvas never decides the size of its box: with its own aspect it could make the box a pixel taller, the box's resize would redraw the picture, and so on, without end)
-      if (getComputedStyle(el).position === "static") el.style.position = "relative";
       const CANVAS_FADE = "filter .4s ease,opacity .4s ease";
+      // (the canvas is born invisible and blurred, and it is STYLED BEFORE it is in the page: `getComputedStyle` below makes the browser style what is in the page, so a canvas added first was styled at full strength and then faded out by this very line, a picture that showed, went and came back)
+      // (absolute, so that the canvas never decides the size of its box: with its own aspect it could make the box a pixel taller, the box's resize would redraw the picture, and so on, without end)
       renderer.domElement.style.cssText = `position:absolute;inset:0;display:block;width:100%;height:100%;transition:${CANVAS_FADE};opacity:0;filter:blur(7px)`;
-      // (the canvas is born invisible and blurred, so that nothing of it can show before the picture is first drawn: it came in at full strength and was faded out by `soften` a moment later)
+      el.appendChild(renderer.domElement);
+      if (getComputedStyle(el).position === "static") el.style.position = "relative";
       // While the picture is redrawn (a resize, a change of scheme) the last one stays, blurred, and comes back into focus on the new one once it has a few frames in it
       let settling = false;
       const soften = (opacity = "0.85") => {

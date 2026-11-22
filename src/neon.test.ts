@@ -23,6 +23,30 @@ describe("createNeon", () => {
     n.stop();
     expect([...n.levels].every((v) => v === 1)).toBe(true);
   });
+  it("starts at once: a rod that is off lights in the first 300 ms, whatever the seed", async () => {
+    let now = 0;
+    let frame: ((t: number) => void) | null = null;
+    vi.stubGlobal("performance", { now: () => now });
+    vi.stubGlobal("requestAnimationFrame", (f: (t: number) => void) => ((frame = f), 1));
+    for (let seed = 1; seed <= 20; seed++) {
+      let off: number[] = [];
+      let lit = 0;
+      const n = createNeon({ blocks, apply: (l) => off.forEach((i) => (lit = Math.max(lit, l[i]!))), done: vi.fn(), sound: false, seed });
+      off = [...n.levels].flatMap((v, i) => (v === 0 ? [i] : []));
+      now = 0;
+      n.start();
+      // (the clock starts once the (absent) sound is ready: a promise later)
+      await Promise.resolve();
+      await Promise.resolve();
+      for (; now <= 300; now += 16) {
+        const f = frame;
+        frame = null;
+        f?.(now);
+      }
+      expect(lit, `seed ${seed}`).toBeGreaterThan(0);
+      n.stop();
+    }
+  });
   it("copes with no blocks", () => {
     const n = createNeon({ blocks: [], apply: vi.fn(), done: vi.fn(), sound: false });
     expect(n.count).toBe(0);

@@ -113,6 +113,13 @@ export function createNeon({ blocks, apply, done, sound, fps = NEON_FPS, wobbleF
     }
     areaPlans.set(k, { start, stutters, steady: at + 60 });
   });
+  // (the start-up begins at once: the whole plan is moved so that its first area stutters at the very start, not after a random wait. The picture has only just come into focus, and the time it took to load is enough of a wait)
+  const lead = Math.min(...[...areaPlans.values()].map((p) => p.start));
+  if (Number.isFinite(lead)) for (const p of areaPlans.values()) {
+    p.start -= lead;
+    p.steady -= lead;
+    for (const st of p.stutters) st.at -= lead;
+  }
   const plans = new Map<number, { start: number; stutters: Stutter[]; steady: number; shift: number; scale: number; area: number }>();
   blocks.forEach((_, i) => {
     const base = areaPlans.get(areaOf[i]!);

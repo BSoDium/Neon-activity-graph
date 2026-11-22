@@ -39,7 +39,7 @@ describe("createNeon", () => {
       await Promise.resolve();
       await Promise.resolve();
       for (; now <= 300; now += 16) {
-        const f = frame;
+        const f = frame as ((t: number) => void) | null;
         frame = null;
         f?.(now);
       }

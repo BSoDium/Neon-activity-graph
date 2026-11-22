@@ -1151,6 +1151,8 @@ void main() {
       // (a build in progress: its number, so that a newer one (a theme change, new colours) makes the older stop; and whether one is running, so that no frame is drawn of a scene half built)
       let buildToken = 0;
       let building = false;
+      // (whether the canvas has had its first size: the first frames wait for it, `fit` starts them)
+      let fitted = false;
       /** How long a step of the build may hold the main thread before the page gets it back (ms). */
       const BUILD_SLICE = 12;
       /** Builds the blocks in steps, a few milliseconds each, the page getting its main thread back between them; the old blocks stay until the new ones are all there, then `done` runs. */
@@ -1179,11 +1181,18 @@ void main() {
         const step = () => {
           if (cancelled || token !== buildToken) return;
           const t = performance.now();
-          const result = cm(() => {
-            let r = steps.next();
-            while (!r.done && performance.now() - t < BUILD_SLICE) r = steps.next();
-            return r;
-          });
+          let result: IteratorResult<void, Group>;
+          try {
+            result = cm(() => {
+              let r = steps.next();
+              while (!r.done && performance.now() - t < BUILD_SLICE) r = steps.next();
+              return r;
+            });
+          } catch (e) {
+            // (a build that fails must not leave the picture waiting for it forever: the old blocks stay and the frames go on)
+            building = false;
+            throw e;
+          }
           if (!result.done) return void window.setTimeout(step, 0);
           cm(() => {
             showMat.uniforms.bloom!.value = dark ? (customOn() ? 0.4 : 1) : 0;
@@ -1370,6 +1379,7 @@ void main(){
       };
 
       const fit = () => {
+        fitted = true;
         const size = renderSize({ cssWidth: el.clientWidth, cssHeight: el.clientHeight, devicePixelRatio: window.devicePixelRatio, lite, maxPixelRatio: opts.maxPixelRatio, maxPixels: opts.maxPixels, maxSize: renderer.capabilities.maxTextureSize });
         w = size.width;
         h = size.height;
@@ -1711,7 +1721,7 @@ void main(){
       // (the first picture: drawn once the blocks are all built, the start-up prepared with them)
       buildBlocks(() => {
         prepareNeon();
-        restart();
+        if (fitted) restart();
       });
       // --- hovering: the day under the pointer (or the key) ---
       const dom = renderer.domElement;

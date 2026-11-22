@@ -1,4 +1,4 @@
-import { createActivityGraph, fakeLayer, type ActivityGraph, type GraphData, type Tones } from "neon-activity-graph";
+import { createActivityGraph, DEFAULT_COLORS, fakeLayer, type ActivityGraph, type GraphData, type Tones } from "neon-activity-graph";
 
 // The demo draws the owner's current activity, written by the `activity` workflow to the `data` branch; until that file exists (or if it cannot be fetched) a generated sample is drawn, so the page never shows nothing.
 // The place-holder (the flat days) is the package's own: it is there at once and fades out when the scene is ready. The outline and the card are the package's overlay.
@@ -7,45 +7,41 @@ const DATA_URL = "https://raw.githubusercontent.com/BSoDium/Neon-activity-graph/
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const host = $("graph");
 const stage = $("stage");
-const sub = $("sub");
-const narrow = matchMedia("(max-width: 767px)");
-const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+const live$ = $("live");
+// (the portrait picture, four strips: on a phone, and on any screen that is as tall as it is wide or taller, where one long strip would be a thin line in the middle of it)
+const narrow = matchMedia("(max-width: 767px), (max-aspect-ratio: 1/1)");
 
-// --- the title: real text, one span a letter, switched on like a neon sign ---
-const TITLE = "Neon-activity-graph";
-const RAINBOW = new Set([0, 4, 13]); // (the N and the two hyphens carry the Technicolor stripes)
-const letters = [...TITLE].map((ch, i) => {
-  const s = document.createElement("span");
-  s.className = RAINBOW.has(i) ? "l rb" : "l";
-  s.textContent = ch;
-  return s;
-});
-$("title-letters").append(...letters);
-let titleOn = false;
-const switchOn = () => {
-  if (titleOn) return;
-  titleOn = true;
-  if (reduced.matches) return void letters.forEach((l) => (l.style.opacity = ""));
-  // Each tube has its own stutter, over the 2.6 s the graph's own start-up takes: a few false starts, gaps, then on (a tiny brightness overshoot) and steady.
-  let seed = 11;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  letters.forEach((l, i) => {
-    const start = 0.08 + rnd() * 0.5;
-    const stutters = 2 + Math.floor(rnd() * 3);
-    const frames: Keyframe[] = [{ opacity: 0.1, offset: 0 }];
-    let t = start;
-    for (let k = 0; k < stutters; k++) {
-      frames.push({ opacity: 0.1, offset: t }, { opacity: 0.45 + rnd() * 0.5, offset: t + 0.01 }, { opacity: 0.1, offset: t + 0.02 + rnd() * 0.04 });
-      t += 0.05 + rnd() * 0.12;
-    }
-    frames.push({ opacity: 0.1, offset: Math.min(0.88, t) }, { opacity: 1.15 > 1 ? 1 : 1, offset: Math.min(0.9, t + 0.02), filter: "brightness(1.6)" }, { opacity: 1, offset: 1, filter: "brightness(1)" });
-    l.animate(frames.sort((a, b) => (a.offset as number) - (b.offset as number)), { duration: 2600 + i * 40, fill: "both", easing: "linear" });
-  });
+// (the title is plain markup in the page: there from the first paint, whole. Only the graph's own start-up flickers.)
+
+// --- theme: "system" (follow the visitor's system, the default) or "light" / "dark", chosen with the three words in the text ---
+type Theme = "light" | "dark" | null;
+let theme: Theme = (() => {
+  try {
+    const t = localStorage.getItem("nag-theme");
+    return t === "light" || t === "dark" ? t : null;
+  } catch {
+    return null;
+  }
+})();
+const themeButtons = [...document.querySelectorAll<HTMLButtonElement>("button.theme")];
+const paintTheme = () => themeButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.theme === (theme ?? "system"))));
+const applyTheme = (t: Theme) => {
+  theme = t;
+  if (t) document.documentElement.dataset.theme = t;
+  else document.documentElement.removeAttribute("data-theme");
+  try {
+    if (t) localStorage.setItem("nag-theme", t);
+    else localStorage.removeItem("nag-theme");
+  } catch {
+    /* (no storage: the choice lasts for the visit) */
+  }
+  paintTheme();
+  ask("small");
+  // (the page's colours have changed: the graph is told, and re-reads the background)
+  graph?.setTheme(t ?? "auto");
 };
-// (off until then: faint, as an unlit tube is)
-if (!reduced.matches) letters.forEach((l) => (l.style.opacity = "0.1"));
-// (if the graph never comes, the title still lights)
-const fallback = window.setTimeout(switchOn, 3500);
+themeButtons.forEach((b) => b.addEventListener("click", () => applyTheme(b.dataset.theme === "system" ? null : (b.dataset.theme as Theme))));
+paintTheme();
 
 // --- colours: two layers, a preset or a swatch each; kept in the URL hash ---
 type Pair = { top: string; bottom: string };
@@ -56,7 +52,6 @@ const PRESETS: Record<string, Pair | null> = {
   Sunset: { top: "#ff8a1f", bottom: "#c4128a" },
   Mono: { top: "#eeeef2", bottom: "#7f879c" },
 };
-const dark = matchMedia("(prefers-color-scheme: dark)");
 const ORIGINAL: Pair = { top: "#3ddc6a", bottom: "#5aa9ff" };
 const toTones = (hex: string): Tones => {
   const n = parseInt(hex.slice(1), 16);
@@ -77,6 +72,10 @@ const paintPage = () => {
   }
 };
 
+// A cling for a change the visitor made sounds when the picture has been redrawn with it (onRedrawn), not on the click: there is a moment between the two.
+let pending: { size: "small" | "big"; at: number } | null = null;
+const latencies: number[] = [];
+const ask = (size: "small" | "big") => (pending = { size, at: performance.now() });
 let graph: ActivityGraph | null = null;
 let current: GraphData | null = null;
 
@@ -101,16 +100,19 @@ const mount = () => {
   graph = createActivityGraph(host, {
     data: current,
     strips: narrow.matches ? 4 : 1,
-    theme: "auto",
+    theme: theme ?? "auto",
     colors: toColors(pair),
     overlay: true,
+    debug: location.search.includes("debug") || location.search.includes("hold") ? { metrics: location.search.includes("debug"), neonHold: location.search.includes("hold") ? Number(new URLSearchParams(location.search).get("hold")) || true : undefined } : undefined,
+    onRedrawn: () => {
+      if (!pending) return;
+      latencies.push(Math.round(performance.now() - pending.at));
+      graph?.cling(pending.size);
+      pending = null;
+    },
     background: () => getComputedStyle(document.body).backgroundColor,
     // (the hint fades once the visitor has hovered a day)
     onHover: (i) => i && document.body.classList.add("hovered"),
-    onReady: () => {
-      window.clearTimeout(fallback);
-      switchOn();
-    },
   });
   copyVar();
   $("caption").classList.add("ready");
@@ -119,8 +121,9 @@ paintPage();
 mount();
 narrow.addEventListener("change", mount);
 const { data, live, at } = await load();
+(window as unknown as { __nag?: unknown }).__nag = location.search.includes("debug") ? { get graph() { return graph; }, latencies } : undefined;
 current = data;
-sub.textContent = live ? `Live data, updated ${new Date(at ?? Date.now()).toLocaleDateString()}.` : "Generated sample data.";
+live$.textContent = live ? `Live data · updated ${new Date(at ?? Date.now()).toLocaleDateString()}` : "Sample data";
 (graph as ActivityGraph | null)?.update(data);
 
 // --- the panels: "How it works" and "Colours" (keyboard accessible: Escape closes, so does a click outside) ---
@@ -171,18 +174,25 @@ const apply = (p: Pair | null) => {
   if (p) localStorage.setItem("nag-colors", next.slice(1));
   else localStorage.removeItem("nag-colors");
   // (the package rebuilds the blocks in place: no start-up again, nothing refetched)
-  graph?.setColors(toColors(p ?? { top: dark.matches ? ORIGINAL.top : "#0a8f2c", bottom: dark.matches ? ORIGINAL.bottom : "#1a6fe0" })!);
+  graph?.setColors(toColors(p) ?? { top: DEFAULT_COLORS.top, bottom: DEFAULT_COLORS.bottom });
 };
 for (const [name, p] of Object.entries(PRESETS)) {
   const b = document.createElement("button");
   b.type = "button";
   b.dataset.name = name;
   b.innerHTML = `<i style="--a:${(p ?? ORIGINAL).top};--b:${(p ?? ORIGINAL).bottom}"></i>${name}`;
-  b.addEventListener("click", () => apply(p));
+  b.addEventListener("click", () => {
+    ask("big");
+    apply(p);
+  });
   presetBox.append(b);
 }
-inTop.addEventListener("input", () => apply({ top: inTop.value, bottom: inBottom.value }));
-inBottom.addEventListener("input", () => apply({ top: inTop.value, bottom: inBottom.value }));
+const picked = () => {
+  ask("small");
+  apply({ top: inTop.value, bottom: inBottom.value });
+};
+inTop.addEventListener("input", picked);
+inBottom.addEventListener("input", picked);
 syncInputs();
 
 // The install chip: greyed ("coming soon") until the package is on npm; the registry is asked, so it turns on by itself.

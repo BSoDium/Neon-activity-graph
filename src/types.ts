@@ -106,6 +106,8 @@ export interface GraphOptions {
   onLayout?: (bounds: ContentBounds) => void;
   /** The first picture is on screen (fade your place-holder out). */
   onReady?: () => void;
+  /** The picture has been drawn again and is in focus: after the first build, and after every rebuild (a new theme, new colours, a resize). Use it to time an effect to the moment the picture changes, not to the click that asked for it. */
+  onRedrawn?: () => void;
   /** `false` while the neon start-up runs, `true` when the picture is lit (always, when there is no start-up). */
   onLit?: (lit: boolean) => void;
   /**
@@ -121,8 +123,8 @@ export interface GraphOptions {
   maxPixelRatio?: number;
   /** The most pixels the picture is rendered at (default 8 million: the render is scaled down on a very large container). */
   maxPixels?: number;
-  /** Development helpers: `metrics` writes `data-*` timings on the container and logs the ground light's cost, `wireframe` draws the glass as a cage, `neonHold` holds the picture half on, half off. */
-  debug?: { metrics?: boolean; wireframe?: boolean; neonHold?: boolean };
+  /** Development helpers: `metrics` writes `data-*` timings on the container and logs the ground light's cost, `wireframe` draws the glass as a cage, `neonHold` holds the picture half on, half off (a number between 0 and 1: the off half at that level). */
+  debug?: { metrics?: boolean; wireframe?: boolean; neonHold?: boolean | number };
 }
 
 /** Where the blocks are on the screen, in CSS pixels of the container (not the box: the isometric view leaves empty ground at the corners). */
@@ -138,6 +140,8 @@ export interface ActivityGraph {
   readonly bounds: ContentBounds | null;
   /** Draws other data (the graph is rebuilt). */
   update(data: GraphData): void;
+  /** One of the start-up's bell-like clicks on demand (`"big"`: a deeper bell with a high one over it), for a change the visitor made; honours the `sound` option, and stays silent in the light theme (the neon tubes are off there) and where the browser does not allow sound (call it from a click or key handler). */
+  cling(size?: "small" | "big"): void;
   /** Changes the colours of one or both layers (see `colors`): the blocks are rebuilt once the changes settle (about 120 ms after the last call), without the start-up and without refetching; the old picture stays, softened, until the new one is in focus. */
   setColors(colors: { top?: Partial<LayerColors>; bottom?: Partial<LayerColors> }): void;
   /** Changes the theme (the graph is rebuilt, and the start-up plays again in the dark one). Call it again after the page's background changed. */

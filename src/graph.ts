@@ -360,7 +360,8 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         const rgb = opts.rodColor!({ layer: src, index: cell, date: layout.top.cells[cell]!.date, t });
         return rgb ? new THREE.Color(rgb[0], rgb[1], rgb[2]) : null;
       };
-      const groundLayers = (stack: { bottom: Matrix; top: Matrix }, tones: { bottom: [Color, Color]; top: [Color, Color] }, dark: boolean) => {
+      // (`page`: the page's colour, read once a build by the caller: reading it makes a canvas and reads a pixel back)
+      const groundLayers = (stack: { bottom: Matrix; top: Matrix }, tones: { bottom: [Color, Color]; top: [Color, Color] }, dark: boolean, page: Color) => {
         const cw = Math.ceil((width + GLOW_PAD * 2) * PX);
         const ch = Math.ceil((total + GLOW_PAD * 2) * PX);
         const lw = Math.ceil((width + GLOW_PAD * 2) * LPX);
@@ -655,7 +656,7 @@ void main() {
           const prevClear = renderer.getClearColor(new THREE.Color());
           const prevAlpha = renderer.getClearAlpha();
           renderer.setRenderTarget(bake);
-          renderer.setClearColor(pageColour(), 1);
+          renderer.setClearColor(page, 1);
           renderer.clear();
           renderer.render(bakeScene, cam);
           renderer.setRenderTarget(prevTarget);
@@ -686,7 +687,6 @@ void main() {
           // (dark theme) The same gap: the glow on the ground is an additive transparent layer, so the glass would see the bare dark ground behind it (black strips next to a lit floor). An opaque plane drawn ONLY into what the glass sees shows the dark ground plus the
           // very texture the glow is drawn from, which hover and the start-up update in place: the glass sees the live light, the picture itself is unchanged.
           const uBackdrop = { value: 0 };
-          const page = pageColour();
           const proxyMat = new THREE.MeshBasicMaterial({ map: ground.texture, toneMapped: false });
           proxyMat.onBeforeCompile = (shader) => {
             shader.uniforms.uBackdrop = uBackdrop;
@@ -735,10 +735,17 @@ void main() {
       let tallest = 1;
       // The blocks' shapes, kept from one build to the next: a new colour or theme rebuilds the picture, but its blocks are the same (the data has not changed), and a rounded box costs far more to make than to copy.
       const boxes = new Map<string, BufferGeometry>();
+      /** `count` copies of the same 2 or 3 numbers, one after the other (an attribute that is the same on every vertex of a block): plain loops, a callback per number was a large part of the build on a phone. */
+      const repeat = (count: number, ...v: number[]) => {
+        const a = new Float32Array(count * v.length);
+        for (let i = 0; i < a.length; i += v.length) for (let k = 0; k < v.length; k++) a[i + k] = v[k]!;
+        return a;
+      };
       const roundedBox = (w: number, h: number, d: number, seg: number, r: number): BufferGeometry => {
         const key = `${w.toFixed(4)}|${h.toFixed(4)}|${d.toFixed(4)}|${seg}|${r.toFixed(4)}`;
         let g = boxes.get(key);
-        if (!g) boxes.set(key, (g = new RoundedBoxGeometry(w, h, d, seg, r)));
+        // (kept as a plain geometry: `clone` of a RoundedBoxGeometry builds a new rounded box from its parameters before copying, which made the cache cost more than no cache)
+        if (!g) boxes.set(key, (g = new THREE.BufferGeometry().copy(new RoundedBoxGeometry(w, h, d, seg, r))));
         return g.clone();
       };
       // (whether a layer has the package's own colours: the rods' lift toward white is tuned to them; other colours get a generic one)
@@ -816,7 +823,9 @@ void main() {
                 c3.toArray(col, q * 3);
               }
               g.setAttribute("color", new THREE.BufferAttribute(col, 3));
-              tileShape = g;
+              // (a plain geometry, so that each tile's `clone` copies arrays instead of extruding the shape again)
+              tileShape = new THREE.BufferGeometry().copy(g);
+              g.dispose();
               // the rim: a thin ring round the opening, brighter on the edges that face the sun's side (a soft specular line, not a frame)
               const outer = roundedSquare.getPoints(lite ? 3 : 6);
               const ringShape = new THREE.Shape(outer.map((v) => v.clone().multiplyScalar(1.05)));
@@ -838,7 +847,8 @@ void main() {
                 c3.toArray(rc, q * 3);
               }
               ring.setAttribute("color", new THREE.BufferAttribute(rc, 3));
-              ringShape0 = ring;
+              ringShape0 = new THREE.BufferGeometry().copy(ring);
+              ring.dispose();
             }
             const tile = tileShape.clone();
             tile.translate(x, 0, z);
@@ -934,8 +944,8 @@ void main() {
             return new THREE.Color(1, 1, 1).lerp(new THREE.Color(hue0.r / m, hue0.g / m, hue0.b / m), GLOW_TINT);
           })();
           const vcount = shell.getAttribute("position").count;
-          shell.setAttribute("aInc", new THREE.BufferAttribute(Float32Array.from({ length: vcount * 3 }, (_, k) => [inc.r, inc.g, inc.b][k % 3]! * nbShare), 3));
-          shell.setAttribute("aTint", new THREE.BufferAttribute(Float32Array.from({ length: vcount * 3 }, (_, k) => [glowTint.r, glowTint.g, glowTint.b][k % 3]!), 3));
+          shell.setAttribute("aInc", new THREE.BufferAttribute(repeat(vcount, inc.r * nbShare, inc.g * nbShare, inc.b * nbShare), 3));
+          shell.setAttribute("aTint", new THREE.BufferAttribute(repeat(vcount, glowTint.r, glowTint.g, glowTint.b), 3));
           // the glass of a busy day glows on its own surface too (dark theme): three steps of emission per source, each its own material
           const tier = tEff < 0.34 ? 0 : tEff < 0.67 ? 1 : 2;
           const key = `${src}${tier}`;
@@ -964,7 +974,7 @@ void main() {
           }
           core.setAttribute("aBlock", new THREE.BufferAttribute(new Float32Array(core.getAttribute("position").count).fill(blockIndex++), 1));
           // (where the rod stands, across: a dim rod is drawn thinner about it)
-          core.setAttribute("aCtr", new THREE.BufferAttribute(Float32Array.from({ length: core.getAttribute("position").count * 2 }, (_, k) => (k % 2 ? z : x)), 2));
+          core.setAttribute("aCtr", new THREE.BufferAttribute(repeat(core.getAttribute("position").count, x, z), 2));
           cores.push(core);
         }
         // (dark) there is no sun: the lip of a pit shines with the light of the neon around it, on the edge that faces the lamps (a lamp on one side lights the lip on the other side, whose slope faces it), in the lamps' colours; nothing where no lamp is near
@@ -972,12 +982,15 @@ void main() {
           pitRims.forEach((pr, pi) => {
             pr.geom.setAttribute("aPit", new THREE.BufferAttribute(new Float32Array(pr.geom.getAttribute("position").count).fill(pi), 1));
             // (what the lamps give this pit's lip, by lamp: the lip's light follows them as they come on, see `rimLight`)
-            const lamps: { si: number; w: number }[] = [];
+            // (the lamps near enough to light it, found once: every vertex of the lip then looks at these only, not at every block)
+            const near: { si: number; dx: number; dz: number; dist: number; w: number }[] = [];
             specs.forEach((sp, si) => {
-              const d = Math.hypot(sp.x - pr.x, sp.z - pr.z);
-              if (d >= 0.5 && d <= 4) lamps.push({ si, w: emit(sp.t) * Math.exp(-(d * d) / (2 * 1.6 * 1.6)) });
+              const dx = sp.x - pr.x;
+              const dz = sp.z - pr.z;
+              const dist = Math.hypot(dx, dz);
+              if (dist >= 0.5 && dist <= 4) near.push({ si, dx, dz, dist, w: emit(sp.t) * Math.exp(-(dist * dist) / (2 * 1.6 * 1.6)) });
             });
-            pitLamps.push(lamps);
+            pitLamps.push(near.map(({ si, w }) => ({ si, w })));
             const rp = pr.geom.getAttribute("position");
             const rc = pr.geom.getAttribute("color");
             for (let q = 0; q < rp.count; q++) {
@@ -987,17 +1000,14 @@ void main() {
               let r = 0;
               let gg = 0;
               let bb = 0;
-              for (const sp of specs) {
-                const dx = sp.x - pr.x;
-                const dz = sp.z - pr.z;
-                const dist = Math.hypot(dx, dz);
-                if (dist < 0.5 || dist > 4) continue;
+              for (const { si, dx, dz, dist, w } of near) {
                 const facing = Math.max(0, (-(rx / rl) * dx - (rz / rl) * dz) / dist);
                 if (facing <= 0) continue;
-                const k = emit(sp.t) * Math.exp(-(dist * dist) / (2 * 1.6 * 1.6)) * facing * facing * 0.018;
-                r += sp.hue.r * k;
-                gg += sp.hue.g * k;
-                bb += sp.hue.b * k;
+                const k = w * facing * facing * 0.018;
+                const hue = specs[si]!.hue;
+                r += hue.r * k;
+                gg += hue.g * k;
+                bb += hue.b * k;
               }
               rc.setXYZ(q, page.r + Math.min(r, 0.1), page.g + Math.min(gg, 0.1), page.b + Math.min(bb, 0.1));
             }
@@ -1006,7 +1016,7 @@ void main() {
         }
         const tb1 = performance.now();
         const group = new THREE.Group();
-        const groundGroup = groundLayers(stack, tones, dark);
+        const groundGroup = groundLayers(stack, tones, dark, page);
         pitLight = (groundGroup.userData.setLevels as typeof pitLight) ?? null;
         group.add(groundGroup);
         const tb2 = performance.now();

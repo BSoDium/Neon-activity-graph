@@ -7,7 +7,7 @@ A year of activity drawn as glass blocks, in three.js. Each day is a column of t
 - **Dark theme:** every block holds a neon tube. When the graph appears, the tubes stutter on like a gas sign, with a synthesised hum and bell-like clicks, and now and then a few of them flicker.
 - **Light theme:** the same glass with the tubes switched off, lit by the sun. The glass casts coloured shadows and caustics, traced on the GPU. No sound.
 
-**[Live demo →](https://bsodium.github.io/Neon-activity-graph/)** (the author's own GitHub and WakaTime activity, refreshed every 6 hours)
+**[Live demo →](https://neon.bsodium.fr/)** (the author's own GitHub and WakaTime activity, refreshed every 6 hours)
 
 <p>
   <img alt="Dark theme: glass blocks lit by neon tubes" src="docs/dark.jpg" width="100%" />
@@ -159,7 +159,7 @@ The isometric view leaves empty ground in the corners of the box, so a caption l
 - **Live changes.** `graph.setColors({ top, bottom })` (or a new `colors` prop in React) rebuilds the blocks in place, without the start-up and without new data. The first change is applied at once; changes in the next 120 ms (dragging a colour input) are folded into one more rebuild. The old picture stays, softened, until the new one is in focus: about 0.3 s on a laptop.
 - **String of lights.** `rodColor` gives each tube its own colour in the dark theme (linear RGB around 0..1; `t` is how busy the day was; `null` keeps the default). It also switches to clear glass, no grey veil and a softer bloom. The light theme ignores it.
 
-The [demo](https://bsodium.github.io/Neon-activity-graph/) has a few presets (Technicolor, Ice, Sunset, Mono) and colour pickers.
+The [demo](https://neon.bsodium.fr/) has a few presets (Technicolor, Ice, Sunset, Mono) and colour pickers.
 
 ## Overlay
 
@@ -226,7 +226,7 @@ pnpm typecheck
 pnpm build      # dist/ (embeds the templates, then tsup)
 ```
 
-The [demo](https://bsodium.github.io/Neon-activity-graph/) (`demo/`) draws the author's current activity: GitHub contributions over WakaTime coding time. `demo/scripts/fetch-activity.mjs` fetches public data without a token, and a scheduled workflow writes `activity.json` to the `data` branch every 6 hours (set the repository variables `GITHUB_LOGIN` and `WAKATIME_USER` to draw someone else's). Without that file the demo falls back to generated data. Its fonts are Shrikhand, Bricolage Grotesque and JetBrains Mono, all under the SIL Open Font License 1.1 (licence texts in `demo/public/fonts`), self-hosted Latin subsets.
+The [demo](https://neon.bsodium.fr/) (`demo/`) draws the author's current activity: GitHub contributions over WakaTime coding time. `demo/scripts/fetch-activity.mjs` fetches public data without a token, and a scheduled workflow writes `activity.json` to the `data` branch every 6 hours (set the repository variables `GITHUB_LOGIN` and `WAKATIME_USER` to draw someone else's). Without that file the demo falls back to generated data. Its fonts are Shrikhand, Bricolage Grotesque and JetBrains Mono, all under the SIL Open Font License 1.1 (licence texts in `demo/public/fonts`), self-hosted Latin subsets.
 
 ## Releasing (maintainers)
 

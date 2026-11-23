@@ -4,13 +4,13 @@
  */
 
 export interface CutawayOptions {
-  /** How much of the days in the way is taken away, 0 to 1 (default 0.8: what is left of them is a screen of dots, 1 is gone of them, so that the picture keeps its depth). */
+  /** How much of the days in the way is taken away, 0 to 1 (default 0.8: what is left of them is a screen of dots; 1 is gone). */
   strength?: number;
-  /** The cell of the halftone the blocks in the way are screened with, in CSS pixels (default 6): they are not simply made transparent but turn into a screen of holes that grow with the fade, so that they read as seen through. `0` gives a fine noise instead. */
+  /** The cell of the halftone the blocks in the way are screened with, in CSS pixels (default 3): they are not simply made transparent but turn into a screen of holes that grow with the fade, so that they read as seen through. `0` gives a fine noise instead. */
   dot?: number;
 }
 
-export const CUTAWAY_DEFAULTS = { strength: 0.8, dot: 6 } as const;
+export const CUTAWAY_DEFAULTS = { strength: 0.8, dot: 3 } as const;
 /** Eased with this time constant, in ms. */
 export const CUTAWAY_TAU_MS = 90;
 /** The half-width of a day's block, and how far the rays that look for what is in the way are drawn in from the selected day's edge (a neighbour that only brushes its silhouette is not in the way). */

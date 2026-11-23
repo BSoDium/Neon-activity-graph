@@ -117,7 +117,7 @@ interface GraphLayer {
 | `overlay` | off | `true` or `{ outline?, card?, locale? }`: the selected day's outline and a day card, drawn over the graph. See [Overlay](#overlay). |
 | `label` | "Activity graph, one column a day. …" | The accessible name. |
 | `templatesUrl` | embedded | Where to fetch `caustic-templates.png` from, instead of the embedded data URI. |
-| `cutaway` | `true` | `false`, or `{ strength?, dot? }`. While a day is selected, the days that stand in its way (that hide it from the camera) are screened away, whole, in both themes, so a day behind taller ones can be seen. `strength` is the share taken away (`0`–`1`, default `0.8`: a screen of dots is left; `1` is gone), `dot` the halftone cell in CSS px (default `6`; `0` for a fine noise). See [Cutaway](#cutaway). |
+| `cutaway` | `true` | `false`, or `{ strength?, dot? }`. While a day is selected, the days that stand in its way (that hide it from the camera) are screened away, whole, in both themes, so a day behind taller ones can be seen. `strength` is the share taken away (`0`–`1`, default `0.8`: a screen of dots is left; `1` is gone), `dot` the halftone cell in CSS px (default `3`; `0` for a fine noise). See [Cutaway](#cutaway). |
 | `maxPixelRatio` | `2` | The highest pixel ratio rendered (`lite` always renders at 1). |
 | `maxPixels` | `8_000_000` | The most pixels rendered; a larger container is rendered at a lower ratio. |
 | `debug` | | `{ metrics?, wireframe?, neonHold? }`: development helpers (`data-*` timings on the container, the glass as a cage, the picture held half on). |

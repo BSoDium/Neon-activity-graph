@@ -239,23 +239,6 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         mat.clipIntersection = true;
       };
       if (dbg.hide) renderer.localClippingEnabled = true;
-      /**
-       * (dark) The dynamic range of the light on the ground (development: `debug.groundFalloff`, 0 is as baked). The glow at or above `GROUND_KNEE` (a bright rod's, up there in the texture) is left exactly as it is; below it, the glow is multiplied
-       * by an exponential ramp of how far it is from the knee, `(e^(a r) - 1) / (e^a - 1)` with `r` its share of the knee: 1 at the knee, falling faster the larger `a` is (a = 4: a half of the knee's light is cut to 12 %, a quarter to 3 %).
-       * The hue is kept. The glass sees the same curve (it looks at the ground through the same texture). Measured in the texture (linear) on three datasets: the very brightest glow is 0.006 to 0.007, the 99th percentile 0.0035, the 95th 0.0025.
-       */
-      const GROUND_KNEE = 0.003;
-      const groundCurve = (mat: import("three").MeshBasicMaterial) => {
-        const g = dbg.groundFalloff ?? 0;
-        if (g <= 0) return;
-        const prev = mat.onBeforeCompile;
-        const base = mat.customProgramCacheKey();
-        mat.onBeforeCompile = (shader, r) => {
-          prev.call(mat, shader, r);
-          shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>\n  { float gm = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b)); if (gm > 1e-7 && gm < ${GROUND_KNEE.toExponential(4)}) { float gr = gm / ${GROUND_KNEE.toExponential(4)}; diffuseColor.rgb *= (exp(${g.toFixed(3)} * gr) - 1.0) / (exp(${g.toFixed(3)}) - 1.0); } }`);
-        };
-        mat.customProgramCacheKey = () => `${base}|gf${g.toFixed(3)}`;
-      };
       const cutCfg = resolveCutaway(opts.cutaway);
       const cutCells = Math.max(1, layout.top.cells.length);
       // (one number a day, 0 to 1: how far the day is faded away; eased on the CPU, read by the blocks' shaders)
@@ -585,6 +568,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
           stampCtl = !templates ? null : ground.stamps(
             glass.map((g) => ({ x: g.c[0], z: g.c[2], height: 2 * g.h[1], foot: g.c[1] - g.h[1], col: [g.col[0] * g.power, g.col[1] * g.power, g.col[2] * g.power] as [number, number, number], poolCol: g.pool!.col, poolRadius: g.pool!.r })),
             templates,
+            { falloff: dbg.rodFalloff ?? 0, reach: dbg.rodReach ?? 1 },
           );
         } else {
           const sunDir = new THREE.Vector3().copy(sunBase).normalize().negate();
@@ -609,7 +593,6 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         };
         if (dark) plane(ground.texture, (map) => {
           const gm = new THREE.MeshBasicMaterial({ map, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-          groundCurve(gm);
           return gm;
         }, 1);
         else {
@@ -788,7 +771,6 @@ void main() {
               .replace("#include <opaque_fragment>", `outgoingLight = uPage + uDim * softSeen(outgoingLight);\n#include <opaque_fragment>`);
           };
           proxyMat.customProgramCacheKey = () => "ground-backdrop-dark";
-          groundCurve(proxyMat);
           const proxy = new THREE.Mesh(new THREE.PlaneGeometry(cw / PX, ch / PX), proxyMat);
           proxy.rotation.x = -Math.PI / 2;
           proxy.position.set(width / 2, 0.01, total / 2);

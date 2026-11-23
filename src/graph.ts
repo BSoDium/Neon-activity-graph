@@ -344,6 +344,8 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const specK = Math.max(0, dbg.glassSpec ?? 1);
       const REFLECTED_LAMPS = 8;
       const REFLECT_RANGE = 9;
+      /** How much of the lamp's own hue the reflections take, against its core's whitened colour (1: all). */
+      const REFLECT_PURITY = 0.9;
       glowMaterial.onBeforeCompile = (shader) => {
         shader.uniforms.uLevels = { value: levelTex };
         shader.vertexShader = shader.vertexShader
@@ -1093,8 +1095,12 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
           shell.setAttribute("aSideN", new THREE.BufferAttribute(repeat(vcount, ...shares.neg), 3));
           // (the lamps this glass reflects: the brightest, nearest rods of the other days, up to `REFLECTED_LAMPS`, found once here; their colour, position and level are fetched in the shader)
           if (dark && blockIndex < MAX_LEVELS) {
-            const col = lampColour(sp);
-            lampData.set([x, z, y0, y0 + h, col.r, col.g, col.b, 0].slice(0, 4), blockIndex * 4);
+            // (the colour of the reflection is the rod's own hue at the rod's brightness, not its core's, which is lifted toward white and would make a grey streak)
+            const col = lampColour(sp).clone();
+            const hm = Math.max(hue0.r, hue0.g, hue0.b, 1e-3);
+            const pure = hue0.clone().multiplyScalar(Math.max(col.r, col.g, col.b) / hm);
+            col.lerp(pure, REFLECT_PURITY);
+            lampData.set([x, z, y0, y0 + h], blockIndex * 4);
             lampData.set([col.r, col.g, col.b, 0], (MAX_LEVELS + blockIndex) * 4);
           }
           const near = new Array<number>(REFLECTED_LAMPS).fill(-1);

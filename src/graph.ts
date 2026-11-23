@@ -249,13 +249,17 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         uCutStrength: { value: cutCfg?.strength ?? 0 },
       };
       // --- the cutaway: the days in the way of the selected one fade out, whole (see `cutaway.ts`); the uniforms are shared by every block material ---
-      // (a solid block (the glass, the light theme's core) is drawn twice: by its own material, opaque, which leaves out the blocks that are fading, and by a fading twin, transparent and writing no depth, drawn after all the glass, which
-      // draws only those, with the fade as its alpha. So the picture at rest is the opaque one, untouched, and a fading block hides nothing drawn after it: what is behind it shows through it. The twins are hidden at rest.)
+      // (a solid block (the glass, the light theme's core) is drawn twice: by its own material, opaque, which leaves out the blocks that are fading, and by a fading twin, blended and writing no depth, which draws only those, with the
+      // fade as its alpha. So the picture at rest is the opaque one, untouched, and a fading block hides nothing drawn after it: what is behind it shows through it. The twins are one mesh a block, drawing its own range of the solid
+      // mesh's buffers, shown only while that block is part-way faded, and drawn back to front along the camera's fixed view (their `renderOrder`, ranked once at a build), so two fading blocks over one another blend in the right order.)
       // (a light drawn additively (a rod) is not doubled: it fades by its colour)
-      const cutTwins: import("three").Object3D[] = [];
+      const cutTwins: import("three").Mesh[] = [];
       const cutShowTwins = () => {
-        const faded = cutFade.some((v) => v > 0);
-        for (const t of cutTwins) t.visible = faded;
+        const k = cutCfg?.strength ?? 0;
+        for (const t of cutTwins) {
+          const f = cutFade[t.userData.cell as number] ?? 0;
+          t.visible = f > 0 && f * k < 1;
+        }
       };
       /** Adds the cutaway's GLSL to a material: `vertex` after `begin_vertex`, and `fragment` before (or `after`) `opaque_fragment`. */
       const patchCut = (mat: import("three").Material, key: string, vertex: string, fragment?: string, after = false) => {
@@ -281,16 +285,37 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         patchCut(mat, "solid", CUT_VERTEX_SOLID);
         return twin;
       };
-      /** The fading twin of a solid block's mesh, drawn after every solid glass (`renderOrder`), hidden at rest. */
-      const cutTwinMesh = (mesh: import("three").Mesh, twin: import("three").Material | null) => {
-        if (!twin) return null;
-        const t = new THREE.Mesh(mesh.geometry, twin);
-        t.renderOrder = 100;
-        t.castShadow = false;
-        t.receiveShadow = mesh.receiveShadow;
-        t.visible = cutFade.some((v) => v > 0);
-        cutTwins.push(t);
-        return t;
+      /**
+       * The fading twins of `mesh`, merged from `parts` (one a block, in order): a mesh a block, sharing `mesh`'s buffers and drawing its block's range of them, with how near the camera the block is (`depth`, larger is nearer).
+       */
+      const cutTwinMeshes = (mesh: import("three").Mesh, twin: import("three").Material | null, parts: readonly BufferGeometry[]) => {
+        if (!twin) return [];
+        camera.updateMatrixWorld();
+        const toCam = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 2);
+        const src = mesh.geometry;
+        const out: { mesh: import("three").Mesh; depth: number }[] = [];
+        let start = 0;
+        for (const p of parts) {
+          const count = src.index ? p.index!.count : p.getAttribute("position").count;
+          const g = new THREE.BufferGeometry();
+          for (const [k, a] of Object.entries(src.attributes)) g.setAttribute(k, a);
+          g.setIndex(src.index);
+          g.setDrawRange(start, count);
+          start += count;
+          p.computeBoundingBox();
+          const t = new THREE.Mesh(g, twin);
+          t.castShadow = false;
+          t.receiveShadow = mesh.receiveShadow;
+          t.frustumCulled = false;
+          t.userData.cell = p.getAttribute("aCell").getX(0);
+          cutTwins.push(t);
+          out.push({ mesh: t, depth: p.boundingBox!.getCenter(new THREE.Vector3()).dot(toCam) });
+        }
+        return out;
+      };
+      /** Ranks twins back to front, as `renderOrder`s from `base`, in steps of `step`. */
+      const rankTwins = (twins: { mesh: import("three").Mesh; depth: number }[], base: number, step: number) => {
+        twins.sort((p, q) => p.depth - q.depth).forEach((t, i) => (t.mesh.renderOrder = base + i * step));
       };
       const coreMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
       // (the glass is perfectly clear; it is the core that is soft: its colour fades toward a pale haze of itself toward its silhouette, so it is a blurred glow in the middle of the block, with no hard edge)
@@ -301,6 +326,16 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
           .replace("#include <color_fragment>", "#include <color_fragment>\n  float cf = pow(clamp(abs(normalize(vCoreN).z), 0.0, 1.0), 0.9);\n  diffuseColor.rgb = mix(mix(diffuseColor.rgb, vec3(1.0), CORE_HAZE), diffuseColor.rgb, cf);".replace("CORE_HAZE", "0.5"));
       };
       const coreTwin = cutPatch(coreMaterial);
+      // (the core's twin is drawn with the opaque things, after the ground's layers and its backdrop (`renderOrder` 6 to 7) and before the glass, as the solid core is: inside its glass, and seen by it; its blend is spelt out, as
+      // three.js drops a normal blend from a material that is not `transparent`)
+      if (coreTwin) {
+        coreTwin.transparent = false;
+        coreTwin.blending = THREE.CustomBlending;
+        coreTwin.blendSrc = THREE.SrcAlphaFactor;
+        coreTwin.blendDst = THREE.OneMinusSrcAlphaFactor;
+        coreTwin.blendSrcAlpha = THREE.OneFactor;
+        coreTwin.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+      }
       // (in the dark theme the cores are lights: unlit, their colour is the light they give out, brighter than 1 for a busy day, which the bloom and the glow on the ground turn into a glow)
       // (dark) a rod is an emitter, not an absorber: it is drawn ADDITIVELY (`transparent` stays false, so that it is in the opaque pass the glass sees, and three.js still blends it additively): it adds its light to what is behind it and takes none away, so a dim rod is a faint light over whatever is lit there and an off rod is not there at all
       /** (dark) a rod's brightest channel is compressed above `ROD_KNEE` towards `ROD_MAX` (any hue), and whitened by up to `ROD_WHITE` where it is brightest. */
@@ -1273,6 +1308,7 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
           group.add(rim);
         }
         const materials: import("three").MeshPhysicalMaterial[] = [];
+        const glassTwins: { mesh: import("three").Mesh; depth: number }[] = [];
         for (const [key, list] of shellsBy) {
           yield;
           const [src, tier] = shellTier.get(key)!;
@@ -1347,13 +1383,17 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
           glass.castShadow = true;
           glass.receiveShadow = true;
           group.add(glass);
-          const fading = cutTwinMesh(glass, twin);
-          if (fading) group.add(fading);
+          for (const t of cutTwinMeshes(glass, twin, list)) {
+            group.add(t.mesh);
+            glassTwins.push(t);
+          }
           list.forEach((p) => p.dispose());
         }
+        // (after every solid glass, which they are depth-tested against)
+        rankTwins(glassTwins, 100, 1);
         group.userData.dispose = () => {
           materials.forEach((m) => m.dispose());
-          for (const c of group.children) if (cutTwins.includes(c)) cutTwins.splice(cutTwins.indexOf(c), 1);
+          for (const c of group.children) if (cutTwins.includes(c as import("three").Mesh)) cutTwins.splice(cutTwins.indexOf(c as import("three").Mesh), 1);
         };
         if (cores.length) {
           const core = new THREE.Mesh(mergeGeometries(cores), dark ? glowMaterial : coreMaterial);
@@ -1361,8 +1401,11 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
           if (dark) core.renderOrder = 10;
           core.castShadow = false;
           group.add(core);
-          const fading = dark ? null : cutTwinMesh(core, coreTwin);
-          if (fading) group.add(fading);
+          if (!dark) {
+            const twins = cutTwinMeshes(core, coreTwin, cores);
+            for (const t of twins) group.add(t.mesh);
+            rankTwins(twins, 6, 1 / (twins.length + 1));
+          }
         }
         [...cores, ...tiles].forEach((p) => p.dispose());
         tileShape?.dispose();
@@ -1455,6 +1498,14 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
       // (above the empty tiles, under the glow and contact-shadow layers: the sun's shadows fall on a tile as on the ground)
       ground.position.set(width / 2, 0.06, total / 2);
       ground.receiveShadow = true;
+      // (drawn with the opaque things, after them and before the ground's layers and the glass, as those layers are (see `plane`): a block fading in the cutaway has it behind it, not over it)
+      ground.material.transparent = false;
+      ground.material.blending = THREE.CustomBlending;
+      ground.material.blendSrc = THREE.SrcAlphaFactor;
+      ground.material.blendDst = THREE.OneMinusSrcAlphaFactor;
+      ground.material.blendSrcAlpha = THREE.OneFactor;
+      ground.material.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+      ground.renderOrder = 0.5;
       scene.add(ground);
 
       const sun = new THREE.DirectionalLight(0xffffff, 2.2);

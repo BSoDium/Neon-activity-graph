@@ -108,12 +108,11 @@ export function stepFades(fade: Float32Array, wanted: ReadonlySet<number>, dtMs:
 export const CUT_DECLS_VERTEX = "attribute float aCell;\nuniform highp sampler2D uCutFade;\nuniform float uCutStrength;\nvarying float vCutF;";
 const CUT_FETCH = "  vCutF = texelFetch(uCutFade, ivec2(int(aCell + 0.5), 0), 0).r * uCutStrength;";
 /**
- * GLSL, vertex stage, after `begin_vertex`. A faded block is drawn by its fading twin and not by its solid self, and the other way round: the one that must not draw it collapses it to a point (no triangle, no fragment, no depth), so the
- * solid blocks keep the opaque pipeline (and the depth buffer) exactly as at rest, and only what fades is blended.
+ * GLSL, vertex stage, after `begin_vertex`. A block that is fading is drawn by its fading twin (a mesh of its own, shown only then) and not by its solid self, which collapses it to a point (no triangle, no fragment, no depth): so
+ * the solid blocks keep the opaque pipeline (and the depth buffer) exactly as at rest, and only what fades is blended.
  */
 export const CUT_VERTEX_SOLID = CUT_FETCH + "\n  if (vCutF > 0.0) transformed = vec3(0.0);";
-/** (the twin also leaves out a block that is gone, faded right out: it would cost the whole glass shader for nothing) */
-export const CUT_VERTEX_FADING = CUT_FETCH + "\n  if (vCutF <= 0.0 || vCutF >= 1.0) transformed = vec3(0.0);";
+export const CUT_VERTEX_FADING = CUT_FETCH;
 export const CUT_VERTEX_LIGHT = CUT_FETCH;
 export const CUT_DECLS_FRAGMENT = "varying float vCutF;";
 /** GLSL, after `opaque_fragment`: the fading twin's alpha is the fade alone (set last, so that nothing three.js puts in the alpha, such as the transmitted picture's, which can be over 1 where the additive rods are, gets into the blending). */

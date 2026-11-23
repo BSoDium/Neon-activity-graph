@@ -240,10 +240,11 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       };
       if (dbg.hide) renderer.localClippingEnabled = true;
       /**
-       * (dark) The contrast of the light on the ground (development: `debug.groundContrast`, 1 is as baked): the brightest channel of the glow is put through a power curve about `GROUND_REF`, so that what is dimmer than that goes dimmer still and what is brighter
-       * stays; the hue is kept. The glass sees the same curve (it looks at the ground through the same texture), so a quiet stretch has a dark floor and the glass over it is not lit by it.
+       * (dark) The dynamic range of the light on the ground (development: `debug.groundContrast`, 1 is as baked): the brightest light on the ground, the glow of a rod at its brightest, is left as it is, and what is dimmer is
+       * dimmed in proportion: a glow at a share `r` of that peak is multiplied by `r` to the power `contrast - 1`, so a quiet rod lights the ground much less and a busy one the same. The hue is kept. The glass sees the same curve
+       * (it looks at the ground through the same texture). `GROUND_PEAK` is what the glow of the brightest rods reaches in the texture (linear, measured: 0.0059 to 0.0069 at the very top, 0.0045 for the 99.9th percentile).
        */
-      const GROUND_REF = 0.3;
+      const GROUND_PEAK = 0.0045;
       const groundCurve = (mat: import("three").MeshBasicMaterial) => {
         const g = dbg.groundContrast ?? 1;
         if (g === 1) return;
@@ -251,7 +252,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         const base = mat.customProgramCacheKey();
         mat.onBeforeCompile = (shader, r) => {
           prev.call(mat, shader, r);
-          shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>\n  { float gm = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b)); if (gm > 1e-5) diffuseColor.rgb *= (${GROUND_REF.toFixed(2)} * pow(gm / ${GROUND_REF.toFixed(2)}, ${g.toFixed(3)})) / gm; }`);
+          shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>\n  { float gm = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b)); if (gm > 1e-7 && gm < ${GROUND_PEAK.toExponential(4)}) diffuseColor.rgb *= pow(gm / ${GROUND_PEAK.toExponential(4)}, ${(g - 1).toFixed(3)}); }`);
         };
         mat.customProgramCacheKey = () => `${base}|gc${g.toFixed(3)}`;
       };

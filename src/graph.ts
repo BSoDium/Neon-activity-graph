@@ -239,6 +239,22 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         mat.clipIntersection = true;
       };
       if (dbg.hide) renderer.localClippingEnabled = true;
+      /**
+       * (dark) The contrast of the light on the ground (development: `debug.groundContrast`, 1 is as baked): the brightest channel of the glow is put through a power curve about `GROUND_REF`, so that what is dimmer than that goes dimmer still and what is brighter
+       * stays; the hue is kept. The glass sees the same curve (it looks at the ground through the same texture), so a quiet stretch has a dark floor and the glass over it is not lit by it.
+       */
+      const GROUND_REF = 0.3;
+      const groundCurve = (mat: import("three").MeshBasicMaterial) => {
+        const g = dbg.groundContrast ?? 1;
+        if (g === 1) return;
+        const prev = mat.onBeforeCompile;
+        const base = mat.customProgramCacheKey();
+        mat.onBeforeCompile = (shader, r) => {
+          prev.call(mat, shader, r);
+          shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>\n  { float gm = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b)); if (gm > 1e-5) diffuseColor.rgb *= (${GROUND_REF.toFixed(2)} * pow(gm / ${GROUND_REF.toFixed(2)}, ${g.toFixed(3)})) / gm; }`);
+        };
+        mat.customProgramCacheKey = () => `${base}|gc${g.toFixed(3)}`;
+      };
       const cutCfg = resolveCutaway(opts.cutaway);
       const cutCells = Math.max(1, layout.top.cells.length);
       // (one number a day, 0 to 1: how far the day is faded away; eased on the CPU, read by the blocks' shaders)
@@ -590,7 +606,11 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
             mat.dispose();
           });
         };
-        if (dark) plane(ground.texture, (map) => new THREE.MeshBasicMaterial({ map, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), 1);
+        if (dark) plane(ground.texture, (map) => {
+          const gm = new THREE.MeshBasicMaterial({ map, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+          groundCurve(gm);
+          return gm;
+        }, 1);
         else {
           // (the difference to the sun's light, turned into what multiplies the ground and what is added to it)
           const resolve = (shade: boolean) =>
@@ -767,6 +787,7 @@ void main() {
               .replace("#include <opaque_fragment>", `outgoingLight = uPage + uDim * softSeen(outgoingLight);\n#include <opaque_fragment>`);
           };
           proxyMat.customProgramCacheKey = () => "ground-backdrop-dark";
+          groundCurve(proxyMat);
           const proxy = new THREE.Mesh(new THREE.PlaneGeometry(cw / PX, ch / PX), proxyMat);
           proxy.rotation.x = -Math.PI / 2;
           proxy.position.set(width / 2, 0.01, total / 2);

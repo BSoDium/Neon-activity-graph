@@ -125,6 +125,8 @@ export * from "./pure";
 export { createHoverOverlay } from "./overlay";
 export type { HoverOverlay, OverlayOptions } from "./overlay";
 export { cardPosition, formatDay, outlinePath } from "./overlay-math";
+export { resolveCutaway, cutFade, circleFalloff, inFront } from "./cutaway";
+export type { CutawayOptions } from "./cutaway";
 export { renderSize } from "./size";
 export { DEFAULT_COLORS } from "./graph";
 export type { ActivityGraph, ContentBounds, GraphOptions, HoverInfo, RodContext, Startup } from "./types";

@@ -117,6 +117,7 @@ interface GraphLayer {
 | `overlay` | off | `true` or `{ outline?, card?, locale? }`: the selected day's outline and a day card, drawn over the graph. See [Overlay](#overlay). |
 | `label` | "Activity graph, one column a day. …" | The accessible name. |
 | `templatesUrl` | embedded | Where to fetch `caustic-templates.png` from, instead of the embedded data URI. |
+| `cutaway` | `true` | `false`, or `{ radius?, strength? }`. While a day is selected, whatever stands in front of it (nearer the camera) fades away in a soft circle round it, in both themes, so a day behind taller ones can be seen. `radius` is in CSS px at a reference zoom where a day is 16 px wide (it scales with the picture; default `90`), `strength` the share taken away at the centre (`0`–`1`, default `0.92`). See [Cutaway](#cutaway). |
 | `maxPixelRatio` | `2` | The highest pixel ratio rendered (`lite` always renders at 1). |
 | `maxPixels` | `8_000_000` | The most pixels rendered; a larger container is rendered at a lower ratio. |
 | `debug` | | `{ metrics?, wireframe?, neonHold? }`: development helpers (`data-*` timings on the container, the glass as a cage, the picture held half on). |
@@ -168,6 +169,10 @@ The [demo](https://neon.bsodium.fr/) has a few presets (Technicolor, Ice, Sunset
 **The outline's colour.** In the dark theme the outline is the text colour. In the light one the blocks can be dark and saturated, and a dark line is lost on them, so the outline is a white line with a soft, subtle dark halo round its outside only (a blurred near-black stroke, masked out inside the outline): it reads on dark glass (white on dark) and on the pale ground (the halo) alike. `outlineColor: "cased"` does the same in both themes, `"text"` is the text colour alone. `--nag-outline` (the line) and `--nag-outline-halo` (the halo colour; `transparent` for none; `--nag-halo-width`, `--nag-halo-blur` and `--nag-halo-opacity` tune it) override either.
 
 `createHoverOverlay(container, options, labels)` is the same overlay on its own, for a graph you drive yourself.
+
+## Cutaway
+
+Days stand behind one another from the camera, so the selected one is often hidden. With `cutaway` (on by default) the blocks that are nearer the camera than the selected day, and within a soft circle (a smoothstep) round its centre on screen, are dropped from the picture: per fragment, in the blocks' own shaders, with a threshold spread over the accumulated samples so that it converges to a smooth fade. The rest of the picture is untouched outside the circle, and the ground and shadows stay. It eases in and out (about 90 ms constant), and a change of selection crosses over (the old circle fades out while the new one fades in), so sweeping the pointer does not pop. It runs only while the selection changes: nothing is redrawn at rest. In the dark theme it works with the existing glow (the selected day brighter, the rest dimmer), which it complements: the glow says *which* day, the cutaway lets it be seen. With reduced motion it switches without easing. Pass `cutaway: false` to turn it off. The pure maths (`cutFade`, `circleFalloff`, `inFront`, `resolveCutaway`) is exported.
 
 ## Sound
 

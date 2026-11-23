@@ -1,3 +1,4 @@
+import type { CutawayOptions } from "./cutaway";
 import type { Cell, Matrix } from "./layout";
 import type { OverlayOptions } from "./overlay";
 
@@ -123,6 +124,11 @@ export interface GraphOptions {
   placeholder?: boolean;
   /** The day's outline and card, drawn over the graph (default off): `true`, or options. See `createHoverOverlay`. */
   overlay?: boolean | OverlayOptions;
+  /**
+   * The cutaway (default on): while a day is selected, what stands in front of its rods fades away in a soft circle round it, so the day can be seen through the days piled up in front. `radius` is in CSS pixels at a reference zoom
+   * where a day is 16 px wide (it scales with the picture; default 90), `strength` the share taken away at the centre (0 to 1, default 0.92). `false` turns it off. Costs nothing while nothing is selected.
+   */
+  cutaway?: boolean | CutawayOptions;
   /** The highest pixel ratio the picture is rendered at (default 2; a `lite` device always gets 1). */
   maxPixelRatio?: number;
   /** The most pixels the picture is rendered at (default 8 million: the render is scaled down on a very large container). */

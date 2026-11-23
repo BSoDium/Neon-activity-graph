@@ -44,6 +44,7 @@ const options = (): GraphOptions => ({
   grain: Number($<HTMLInputElement>("grain").value),
   overlay: $<HTMLSelectElement>("outline").value === "off" ? false : { card: false, outlineColor: $<HTMLSelectElement>("outline").value as "auto" | "cased" | "text" },
   colors: PALETTES[$<HTMLSelectElement>("palette").value],
+  cutaway: $<HTMLInputElement>("cutaway").checked ? { radius: Number($<HTMLInputElement>("cut-radius").value), strength: Number($<HTMLInputElement>("cut-strength").value) } : false,
   rodColor: $<HTMLInputElement>("lights").checked ? lights : undefined,
   background: (theme) => getComputedStyle(document.body).backgroundColor || (theme === "dark" ? "#0b0b0e" : "#f6f6f4"),
   onLit: (lit) => (status.textContent = lit ? "lit" : "starting up…"),
@@ -56,6 +57,7 @@ const options = (): GraphOptions => ({
   },
 });
 
+(window as unknown as { __nag?: unknown }).__nag = { get graph() { return graph; } };
 const mount = () => {
   graph?.destroy();
   host.classList.toggle("narrow", $<HTMLSelectElement>("strips").value === "4");
@@ -71,7 +73,7 @@ const applyTheme = () => {
 
 mount();
 $("theme").addEventListener("change", applyTheme);
-for (const id of ["strips", "sound", "lite", "grain", "lights", "outline", "palette"]) $(id).addEventListener("change", mount);
+for (const id of ["strips", "sound", "lite", "grain", "lights", "outline", "palette", "cutaway", "cut-radius", "cut-strength"]) $(id).addEventListener("change", mount);
 $("again").addEventListener("click", () => {
   seed++;
   graph?.update(makeData());

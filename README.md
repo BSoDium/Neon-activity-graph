@@ -125,7 +125,7 @@ interface GraphLayer {
 
 | Callback | |
 | --- | --- |
-| `onHover(info \| null)` | The day under the pointer or the arrow keys: `{ index, date, top, bottom, outline, x, y, behind? }`. `outline` is the SVG `points` of the column's silhouette and `x, y` a point on its top, in CSS pixels of the container. Clicking where days stand behind one another cycles through them (`behind: { index, count }`). |
+| `onHover(info \| null)` | The day under the pointer or the arrow keys: `{ index, date, top, bottom, color, background, outline, x, y, behind? }`. `color` is the colour of the column (its taller block, as seen) and `background` the page's, both `#rrggbb`. `outline` is the SVG `points` of the column's silhouette and `x, y` a point on its top, in CSS pixels of the container. Clicking where days stand behind one another cycles through them (`behind: { index, count }`). |
 | `onLayout(bounds)` | Where the blocks are, `{ left, right, top, bottom }` in CSS pixels of the container, on the first layout and on every resize. |
 | `onReady()` | The first picture is on screen. |
 | `onRedrawn()` | The picture has been drawn again and is in focus: after the first build and after every rebuild (theme, colours, resize). Time an effect to this rather than to the click that asked for it. |
@@ -163,7 +163,9 @@ The [demo](https://neon.bsodium.fr/) has a few presets (Technicolor, Ice, Sunset
 
 ## Overlay
 
-`overlay: true` (or `<ActivityGraphView overlay />`) draws the selected day's outline (an SVG path around its blocks) and a day card over the graph. `outline: false` and `card: false` turn either off, `card` can also be a function `(info) => string | Node` for your own content, and `locale` formats the default card's date. Style it with CSS variables on the container or above: `--nag-outline`, `--nag-outline-fill`, `--nag-card-bg`, `--nag-card-fg`, `--nag-card-muted`, `--nag-card-radius`, `--nag-top`, `--nag-bottom`.
+`overlay: true` (or `<ActivityGraphView overlay />`) draws the selected day's outline (an SVG path around its blocks) and a day card over the graph. `outline: false` and `card: false` turn either off, `outlineColor` is `"inverted"` (default, see below) or `"text"` (the text colour), `card` can also be a function `(info) => string | Node` for your own content, and `locale` formats the default card's date. Style it with CSS variables on the container or above: `--nag-outline`, `--nag-outline-halo`, `--nag-outline-fill`, `--nag-card-bg`, `--nag-card-fg`, `--nag-card-muted`, `--nag-card-radius`, `--nag-top`, `--nag-bottom`.
+
+**The inverted outline.** The outline takes the opposite of what is behind it: the column's colour with its hue turned half way round the OKLCH wheel (blue gives orange, green gives magenta), its lightness pushed away from the column's and the page's until it holds a 4.5:1 contrast ratio (WCAG) against both, as far as the colours allow (a bright green on a dark page tops out near 3:1), and cased in the page's colour so that it stands out from whatever is behind it (`--nag-outline-halo`; `transparent` for no casing). A grey column has no hue to turn: it gets a grey outline picked by contrast alone (near-black or near-white), and a nearly grey one only part of the colour. `--nag-outline` overrides it. It is exported as `invertedOutline(cell, background)`, with `contrastRatio(a, b)`; `pnpm dev` then `/outline.html` shows it over the colours of both themes.
 
 `createHoverOverlay(container, options, labels)` is the same overlay on its own, for a graph you drive yourself.
 

@@ -1162,6 +1162,8 @@ void main() {
       // (whether the canvas has had its first size: the first frames wait for it, `fit` starts them)
       let fitted = false;
       /** How long a step of the build may hold the main thread before the page gets it back (ms). */
+      /** The glass tones of each layer as built (what the hovered day's colour is mixed from). */
+      let dayTones: { bottom: [Color, Color]; top: [Color, Color] } | null = null;
       const BUILD_SLICE = 12;
       /** Builds the blocks in steps, a few milliseconds each, the page getting its main thread back between them; the old blocks stay until the new ones are all there, then `done` runs. */
       const buildBlocks = (done: () => void) => {
@@ -1185,7 +1187,9 @@ void main() {
           }
           return [new THREE.Color(low), new THREE.Color(high)];
         };
-        const steps = cm(() => build({ bottom: layout.bottom, top: layout.top }, { bottom: pair("bottom"), top: pair("top") }, dark));
+        const tonePair = { bottom: pair("bottom"), top: pair("top") };
+        dayTones = tonePair;
+        const steps = cm(() => build({ bottom: layout.bottom, top: layout.top }, tonePair, dark));
         const step = () => {
           if (cancelled || token !== buildToken) return;
           const t = performance.now();
@@ -1836,7 +1840,18 @@ void main(){
           }
         }
         const c = toCss(new THREE.Vector3(x, top, z));
-        onHover({ index: cell, date: g.date, top: g.value, bottom: layout.bottom.cells[cell]?.value ?? 0, outline: resample(hull(corners), 64).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), x: c.x, y: c.y, behind });
+        // The colour of the column: that of its taller block (the one that fills most of the silhouette; a mix of two hues, a green and a blue, is a third hue, and of two opposite ones a grey)
+        const lo = layout.bottom.cells[cell];
+        const wb = lo && lo.value > 0 ? 0.18 + lo.t * LAYER_MAX : 0;
+        const wt = g.value > 0 ? 0.18 + g.t * LAYER_MAX : 0;
+        const mix = new THREE.Color(0, 0, 0);
+        if (dayTones) {
+          const src = wb > wt ? "bottom" : "top";
+          mix.copy(dayTones[src][0]).lerp(dayTones[src][1], src === "bottom" ? (lo?.t ?? 0) : g.t);
+        }
+        // (in the light theme the glass is a pale shell, `LIGHT_SHELL_WHITE` toward white over the tone: that is the colour the outline lies on)
+        if (!isDark()) mix.lerp(new THREE.Color(1, 1, 1), 0.55);
+        onHover({ color: `#${mix.getHexString()}`, background: `#${pageColour().getHexString()}`, index: cell, date: g.date, top: g.value, bottom: layout.bottom.cells[cell]?.value ?? 0, outline: resample(hull(corners), 64).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), x: c.x, y: c.y, behind });
       };
       const onMove = (e: PointerEvent) => {
         if (e.pointerType === "touch" || settling) return;

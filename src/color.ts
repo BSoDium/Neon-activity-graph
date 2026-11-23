@@ -78,3 +78,42 @@ export function sameColor(a: ColorInput, b: ColorInput): boolean {
   const y = parseColor(b).map((v) => Math.round(v * 255));
   return x.every((v, i) => v === y[i]);
 }
+
+/** WCAG relative luminance of a colour (0 black .. 1 white). */
+export function luminance(input: ColorInput): number {
+  const [r, g, b] = parseColor(input);
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
+
+/** WCAG contrast ratio of two colours (1 .. 21). */
+export function contrastRatio(a: ColorInput, b: ColorInput): number {
+  const x = luminance(a);
+  const y = luminance(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/** The contrast the outline aims for: against the page (it is cased in the page's colour, so this is the one that always holds) and against the cell (WCAG 1.4.11 asks 3:1 of a graphical object; the same, so that it holds on a glowing block). */
+export const OUTLINE_CONTRAST = { background: 4.5, cell: 4.5 };
+
+/**
+ * The colour of the outline round a cell: the opposite of what is behind it. The hue is the cell's turned half way round the OKLCH wheel (blue to orange, green to magenta), and the lightness is pushed away from the cell's, to the side where
+ * the outline also stands out from the page (`background`: half of the outline is over the ground, half over the block). Of every lightness, the one kept is the one that best reaches `OUTLINE_CONTRAST` against both (the nearest to
+ * the cell's own on a tie), so the outline is as colourful as the contrast allows. A grey cell (almost no chroma) has no hue to turn: it gets a grey outline picked by contrast alone, near-black or near-white, and a cell between the two
+ * gets a part of the colour. Always a `#rrggbb`. Pure.
+ */
+export function invertedOutline(cell: ColorInput, background: ColorInput): string {
+  const { l: l0, c: c0, h } = srgbToOklch(parseColor(cell));
+  const hue = (h + 180) % 360;
+  // (how coloured the cell is: 0 for a grey, 1 from a chroma of 0.06; the outline's chroma follows, at least that of a clear colour)
+  const k = Math.min(1, Math.max(0, (c0 - 0.012) / 0.05));
+  const chroma = k * Math.min(0.2, Math.max(0.14, c0 * 1.1));
+  let best = { score: -1, dist: 9, rgb: [0, 0, 0] as [number, number, number] };
+  for (let L = 0.04; L <= 0.985; L += 0.005) {
+    const rgb = fit(L, chroma, hue);
+    const c = hex(rgb);
+    const score = Math.min(1, contrastRatio(c, background) / OUTLINE_CONTRAST.background, contrastRatio(c, cell) / OUTLINE_CONTRAST.cell);
+    const dist = Math.abs(L - l0);
+    if (score > best.score + 1e-3 || (Math.abs(score - best.score) <= 1e-3 && dist < best.dist)) best = { score, dist, rgb };
+  }
+  return hex(best.rgb);
+}

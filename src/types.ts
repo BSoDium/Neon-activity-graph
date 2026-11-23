@@ -41,6 +41,10 @@ export interface HoverInfo {
   /** Index in the grid of days (weeks x 7, oldest first). */
   index: number;
   date: string;
+  /** The colour of the column's glass (`#rrggbb`): its taller block's colour (as seen: paler in the light theme, where the glass is a shell). What `outlineColor: "inverted"` turns round. */
+  color: string;
+  /** The page's colour behind the picture (`#rrggbb`), as the graph resolved it. */
+  background: string;
   /** The values of the two layers on that day. */
   top: number;
   bottom: number;

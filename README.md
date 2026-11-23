@@ -117,6 +117,7 @@ interface GraphLayer {
 | `overlay` | off | `true` or `{ outline?, card?, locale? }`: the selected day's outline and a day card, drawn over the graph. See [Overlay](#overlay). |
 | `label` | "Activity graph, one column a day. …" | The accessible name. |
 | `templatesUrl` | embedded | Where to fetch `caustic-templates.png` from, instead of the embedded data URI. |
+| `cutaway` | `true` | `false`, or `{ strength? }`. While a day is selected, the days that stand in its way (that hide it from the camera) fade out, whole, in both themes, so a day behind taller ones can be seen. `strength` is the share taken away (`0`–`1`, default `1`: they are gone). See [Cutaway](#cutaway). |
 | `maxPixelRatio` | `2` | The highest pixel ratio rendered (`lite` always renders at 1). |
 | `maxPixels` | `8_000_000` | The most pixels rendered; a larger container is rendered at a lower ratio. |
 | `debug` | | `{ metrics?, wireframe?, neonHold? }`: development helpers (`data-*` timings on the container, the glass as a cage, the picture held half on). |
@@ -169,6 +170,15 @@ The [demo](https://neon.bsodium.fr/) has a few presets (Technicolor, Ice, Sunset
 
 `createHoverOverlay(container, options, labels)` is the same overlay on its own, for a graph you drive yourself.
 
+## Cutaway
+
+<p align="center">
+  <img alt="Light theme, a day at the back of a stack of four: cutaway off (left) and on (right)" src="docs/cutaway-light.jpg" width="49%" />
+  <img alt="Dark theme, the same day: cutaway off (left) and on (right)" src="docs/cutaway-dark.jpg" width="49%" />
+</p>
+
+Days stand behind one another from the camera, so the selected one is often hidden. With `cutaway` (on by default) the days that are in its way fade out whole. "In the way" is exact: a few points of the selected day (the centre, top and bottom of its blocks, and their corners drawn in a little) are looked at toward the camera, and every other day with a block that one of those lines goes through is faded. The days beside it, behind it, or too low to hide it stay. Each day eases in and out by itself (about 90 ms), so when the selection moves, the days that were in the way come back while the new ones go, with no pop. The ground, shadows and caustics are left as they are. The fade costs one texture read a vertex in the blocks' own shaders: the glass (and the light theme's cores) keep their opaque drawing, which leaves out the days that are fading, and those are drawn again by a blended twin that writes no depth, one a block and drawn back to front along the camera's fixed view, with the fade as its alpha, so whatever is behind them (blocks, rods, the ground and its light) shows through and two fading blocks over one another blend in the right order; the rods, which are lights, fade by their brightness. At rest the twins are hidden, and the picture is exactly the one without the cutaway. In the dark theme it goes with the existing glow (the selected day brighter, the rest dimmer): the glow says *which* day, the cutaway lets it be seen. With reduced motion it switches without easing. `cutaway: false` turns it off; the pure `inTheWay` and `resolveCutaway` are exported.
+
 ## Sound
 
 All sound is synthesised with Web Audio; there are no files.
@@ -207,7 +217,7 @@ const supported = !!document.createElement("canvas").getContext("webgl2");
 ## How it works
 
 - **Light theme.** The sun's light through the glass is traced on the GPU (`ground-light.ts`: a vertex shader that splats rays onto the ground) with refraction, Fresnel, total internal reflection, the glass's colour absorption and rounded edges. The ground's brightness is a signed difference to what it would get with no glass, so the shadows are coloured and soft and the caustics are the surplus. `glass-caustics.ts` is the readable CPU version of the same optics, and what the tests check.
-- **Dark theme.** There is no sun: the light is each block's tube. What one block casts on the ground is baked: `assets/caustic-templates.png` holds path-traced templates (Mitsuba 3) of a glass block with a tube inside, for 3 block heights x 4 heights above the ground, averaged over the square's symmetries. The graph lays the right template under every block, in the tube's colour. Tracing this live does not work: with the rays a page can afford, the result is noise.
+- **Dark theme.** There is no sun: the light is each block's tube. What one block casts on the ground is baked: `assets/caustic-templates.png` holds path-traced templates (Mitsuba 3) of a glass block with a tube inside, for 3 block heights x 4 heights above the ground, averaged over the square's symmetries. The graph lays the right template under every block, in the tube's colour. Tracing this live does not work: with the rays a page can afford, the result is noise. The glass itself is lit by the tubes too: a quiet day's glass is darker and catches its neighbours' light only as streaks on its rounded edges, on the side that faces them; it shows the lit blocks round it as specular reflections (each block follows the 8 brightest, nearest tubes, baked once, in their own colour and brighter at grazing angles); and the ground's light it shows through it is dimmed by the glass the view ray crosses on its way down, so a deep stack sees a dimmer floor.
 - **Start-up.** The blocks are cut into 5 adjacent rectangles of different sizes, each with its own 2-4 stutters and a short warm-up. A block whose tube is still off is dim, lit only by its neighbours. Afterwards, rarely and less and less often, a small batch of tubes flickers like a real sign's.
 - **Grain.** A soft, luminance-dependent noise in the last pass, like a camera's.
 

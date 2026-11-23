@@ -1,3 +1,4 @@
+import type { CutawayOptions } from "./cutaway";
 import type { Cell, Matrix } from "./layout";
 import type { OverlayOptions } from "./overlay";
 
@@ -123,6 +124,11 @@ export interface GraphOptions {
   placeholder?: boolean;
   /** The day's outline and card, drawn over the graph (default off): `true`, or options. See `createHoverOverlay`. */
   overlay?: boolean | OverlayOptions;
+  /**
+   * The cutaway (default on): while a day is selected, the days that stand in its way (those that hide it from the camera) fade away, whole and eased, so it can be seen through the days piled up in front. `strength` is the share taken away
+   * (0 to 1, default 1: they fade out completely; less leaves them faint). `false` turns it off. Costs a texture read a vertex while nothing is selected.
+   */
+  cutaway?: boolean | CutawayOptions;
   /** The highest pixel ratio the picture is rendered at (default 2; a `lite` device always gets 1). */
   maxPixelRatio?: number;
   /** The most pixels the picture is rendered at (default 8 million: the render is scaled down on a very large container). */

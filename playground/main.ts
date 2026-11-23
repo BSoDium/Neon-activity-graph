@@ -6,10 +6,49 @@ const card = $("card");
 const status = $("status");
 
 let seed = 1;
-const makeData = (): GraphData => ({
-  top: fakeLayer({ seed, scale: 14, label: "Commits", unit: "commits" }),
-  bottom: fakeLayer({ seed: seed + 100, scale: 6, label: "Coding", unit: "h" }),
-});
+/** Which gaps the last data has (shown in the status line). */
+let gapsUsed = "none";
+const rng = (n: number) => {
+  let x = (Math.imul(n + 1, 2654435761) >>> 0) || 1;
+  return () => {
+    x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0;
+    return x / 4294967296;
+  };
+};
+/**
+ * Empties parts of a layer, to test the lighting of isolated rods: `patches` removes whole stretches of days (a few weeks here and there, whole bands of days), `sparse` keeps only a few days, alone among empty tiles. The "random" choice
+ * (the default) gives a full graph one time in four, so that the busy case is still seen.
+ */
+const withGaps = <T extends { days: { date: string; value: number }[] }>(layer: T, mode: "patches" | "sparse", salt: number): T => {
+  const r = rng(seed * 31 + salt);
+  const keep = new Array<boolean>(layer.days.length).fill(true);
+  if (mode === "patches") {
+    for (let k = 0; k < 6; k++) {
+      const at = Math.floor(r() * layer.days.length);
+      const len = 7 + Math.floor(r() * 35);
+      for (let i = at; i < Math.min(keep.length, at + len); i++) keep[i] = false;
+    }
+    // (a few single weekdays too: a band of days all along the year)
+    const band = Math.floor(r() * 7);
+    for (let i = 0; i < keep.length; i++) if (i % 7 === band && r() < 0.7) keep[i] = false;
+  } else {
+    const share = 0.12 + r() * 0.12;
+    for (let i = 0; i < keep.length; i++) keep[i] = r() < share;
+  }
+  return { ...layer, days: layer.days.map((d, i) => (keep[i] ? d : { ...d, value: 0 })) };
+};
+const makeData = (): GraphData => {
+  const pick = $<HTMLSelectElement>("gaps").value;
+  const r = rng(seed * 7 + 3);
+  const mode = pick === "random" ? (r() < 0.25 ? "none" : r() < 0.5 ? "patches" : "sparse") : (pick as "none" | "patches" | "sparse");
+  gapsUsed = mode;
+  const layers = {
+    top: fakeLayer({ seed, scale: 14, label: "Commits", unit: "commits" }),
+    bottom: fakeLayer({ seed: seed + 100, scale: 6, label: "Coding", unit: "h" }),
+  };
+  if (mode === "none") return layers;
+  return { top: withGaps(layers.top, mode, 1), bottom: withGaps(layers.bottom, mode, 2) };
+};
 
 /** A string of lights: every day one colour of a small palette (a demo of `rodColor`; the values are linear RGB). */
 const PALETTE: [number, number, number][] = [[1, 0.003, 0.003], [0, 0.75, 0.04], [1, 0.38, 0], [0.01, 0.045, 1], [1, 0.9, 0.7]];
@@ -44,18 +83,22 @@ const options = (): GraphOptions => ({
   grain: Number($<HTMLInputElement>("grain").value),
   overlay: $<HTMLSelectElement>("outline").value === "off" ? false : { card: false, outlineColor: $<HTMLSelectElement>("outline").value as "auto" | "cased" | "text" },
   colors: PALETTES[$<HTMLSelectElement>("palette").value],
+  cutaway: $<HTMLInputElement>("cutaway").checked ? { strength: Number($<HTMLInputElement>("cut-strength").value) } : false,
+  reducedMotion: location.search.includes("still") ? true : "auto",
+  debug: { metrics: location.search.includes("metrics") },
   rodColor: $<HTMLInputElement>("lights").checked ? lights : undefined,
   background: (theme) => getComputedStyle(document.body).backgroundColor || (theme === "dark" ? "#0b0b0e" : "#f6f6f4"),
   onLit: (lit) => (status.textContent = lit ? "lit" : "starting up…"),
   onHover: (info) => {
     if (!info) return void (card.style.opacity = "0");
-    card.textContent = `${info.date}: ${info.top} commits, ${info.bottom} h`;
+    card.textContent = `${info.date}: ${info.top} commits, ${info.bottom} h${info.behind ? ` · ${info.behind.index + 1}/${info.behind.count}` : ""}`;
     card.style.left = `${info.x}px`;
     card.style.top = `${info.y}px`;
     card.style.opacity = "1";
   },
 });
 
+(window as unknown as { __nag?: unknown }).__nag = { get graph() { return graph; } };
 const mount = () => {
   graph?.destroy();
   host.classList.toggle("narrow", $<HTMLSelectElement>("strips").value === "4");
@@ -71,8 +114,9 @@ const applyTheme = () => {
 
 mount();
 $("theme").addEventListener("change", applyTheme);
-for (const id of ["strips", "sound", "lite", "grain", "lights", "outline", "palette"]) $(id).addEventListener("change", mount);
+for (const id of ["strips", "sound", "lite", "grain", "lights", "outline", "palette", "cutaway", "cut-strength"]) $(id).addEventListener("change", mount);
 $("again").addEventListener("click", () => {
   seed++;
   graph?.update(makeData());
+  status.textContent = `new data (gaps: ${gapsUsed})`;
 });

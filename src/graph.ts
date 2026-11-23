@@ -225,7 +225,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const DARK_BACKDROP = true;
       const DARK_BACKDROP_GAIN = 200;
       /** (dark) the most the light seen behind the glass can add, on its brightest channel (a soft cap that keeps the hue). */
-      const DARK_BACKDROP_CAP = 0.15;
+      const DARK_BACKDROP_CAP = 0.09;
       /** (light theme) how much of the colour of the blocks behind a block (as the camera sees it) its glass takes, when they cover all of its outline. */
       const LIGHT_BEHIND_TINT = 0.85;
       // --- the cutaway: what is in front of the selected rod is dropped, per fragment, in a soft circle round it (see `cutaway.ts`); the uniforms are shared by every block material ---
@@ -296,7 +296,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const NB_FLAT = 0.02;
       const NB_EDGE = 3.2;
       /** (dark) how much darker the glass of a quiet day is (what is seen through it and what falls on it are multiplied by its colour). */
-      const DIM_BODY = 0.8;
+      const DIM_BODY = 0.35;
       /** (dark) how much less of the light of the neighbours a quiet day's own rod takes (it is lit by them where its own is off): a dim rod beside a bright one stays dim. */
       const DIM_ROD_INC = 0.9;
       /** (dark) how much of the room's reflections (the environment, which the glass takes more of the lighter its rod) a quiet day's glass loses: it is not a mirror that shines the more its neighbours do. */
@@ -304,7 +304,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       /** (dark) how far even a lit block's own glow is confined to its edges (0: not at all, 1: as much as a quiet one's): its glass is not a lamp all over, the rod is. */
       const LIT_FLAT_SHARE = 0.75;
       /** (dark) how much less of what is behind it a quiet day's glass shows (0 is the same as a lit one's). */
-      const DIM_SEE = 0.75;
+      const DIM_SEE = 0.3;
       /** How much light behind a block it takes to light its glass most of the way (the share is `1 - e^-(light behind / this)`). */
       const BEHIND_SCALE = 1.6;
       /** How far the neighbours' light is tinted by the block's own colour, 0 to 1. */

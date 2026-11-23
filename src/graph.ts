@@ -230,6 +230,15 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       /** (light theme) how much of the colour of the blocks behind a block (as the camera sees it) its glass takes, when they cover all of its outline. */
       const LIGHT_BEHIND_TINT = 0.85;
       // --- the cutaway: what is in front of the selected rod is dropped, per fragment, in a soft circle round it (see `cutaway.ts`); the uniforms are shared by every block material ---
+      // (development, `debug.hide`: a band of the blocks, across the picture from `from` to `to` (0 left, 1 right), is not drawn, glass and rods, while the ground, its light and the shadows stay: to see what lights what)
+      const clipBand = (mat: import("three").Material) => {
+        if (!dbg.hide) return;
+        const xa = width * (1 - Math.max(dbg.hide.from, dbg.hide.to));
+        const xb = width * (1 - Math.min(dbg.hide.from, dbg.hide.to));
+        mat.clippingPlanes = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), xa), new THREE.Plane(new THREE.Vector3(1, 0, 0), -xb)];
+        mat.clipIntersection = true;
+      };
+      if (dbg.hide) renderer.localClippingEnabled = true;
       const cutCfg = resolveCutaway(opts.cutaway);
       const cutCells = Math.max(1, layout.top.cells.length);
       // (one number a day, 0 to 1: how far the day is faded away; eased on the CPU, read by the blocks' shaders)
@@ -338,6 +347,8 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       };
       glowMaterial.customProgramCacheKey = () => "rod-levels";
       cutPatch(glowMaterial);
+      clipBand(glowMaterial);
+      clipBand(coreMaterial);
       // `shade` (dark theme): the faces of a block are not all lit alike, as if the light were from above and to the left of the camera, and a block is brighter toward its top: its top is the brightest face, then the side that
       // faces left, then the one that faces the viewer, and the foot is dimmer. An emissive block has no light on it to give it a form, so this puts the form back (without it a busy blue stretch is a field of flat boxes).
       const paint = (g: BufferGeometry, col: Color, glow = 0, shade = false) => {
@@ -1198,6 +1209,7 @@ void main() {
             mat.side = LIGHT_DOUBLE_SIDED ? THREE.DoubleSide : THREE.FrontSide;
           }
           cutPatch(mat);
+          clipBand(mat);
           materials.push(mat);
           const glass = new THREE.Mesh(mergeGeometries(list)!, mat);
           glass.castShadow = true;

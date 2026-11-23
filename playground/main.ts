@@ -85,7 +85,7 @@ const options = (): GraphOptions => ({
   colors: PALETTES[$<HTMLSelectElement>("palette").value],
   cutaway: $<HTMLInputElement>("cutaway").checked ? { strength: Number($<HTMLInputElement>("cut-strength").value), dot: Number($<HTMLInputElement>("cut-dot").value), noise: Number($<HTMLInputElement>("cut-noise").value) } : false,
   reducedMotion: location.search.includes("still") ? true : "auto",
-  debug: { metrics: location.search.includes("metrics"), noGlassGround: $<HTMLInputElement>("no-ground").checked, glassGround: Number($<HTMLInputElement>("glass-ground").value), orbit: $<HTMLInputElement>("orbit").checked },
+  debug: { metrics: location.search.includes("metrics"), noGlassGround: $<HTMLInputElement>("no-ground").checked, glassGround: Number($<HTMLInputElement>("glass-ground").value), orbit: $<HTMLInputElement>("orbit").checked, hide: $<HTMLInputElement>("hide").checked ? { from: Number($<HTMLInputElement>("hide-from").value), to: Number($<HTMLInputElement>("hide-to").value) } : undefined },
   rodColor: $<HTMLInputElement>("lights").checked ? lights : undefined,
   background: (theme) => getComputedStyle(document.body).backgroundColor || (theme === "dark" ? "#0b0b0e" : "#f6f6f4"),
   onLit: (lit) => (status.textContent = lit ? "lit" : "starting up…"),
@@ -114,7 +114,7 @@ const applyTheme = () => {
 
 mount();
 $("theme").addEventListener("change", applyTheme);
-for (const id of ["strips", "sound", "lite", "grain", "lights", "outline", "palette", "cutaway", "cut-dot", "cut-noise", "cut-strength", "no-ground", "glass-ground", "orbit"]) $(id).addEventListener("change", mount);
+for (const id of ["strips", "sound", "lite", "grain", "lights", "outline", "palette", "cutaway", "cut-dot", "cut-noise", "cut-strength", "no-ground", "glass-ground", "orbit", "hide", "hide-from", "hide-to"]) $(id).addEventListener("change", mount);
 $("again").addEventListener("click", () => {
   seed++;
   graph?.update(makeData());

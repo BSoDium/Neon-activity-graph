@@ -78,36 +78,3 @@ export function sameColor(a: ColorInput, b: ColorInput): boolean {
   const y = parseColor(b).map((v) => Math.round(v * 255));
   return x.every((v, i) => v === y[i]);
 }
-
-/** WCAG relative luminance of a colour (0 black .. 1 white). */
-export function luminance(input: ColorInput): number {
-  const [r, g, b] = parseColor(input);
-  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
-}
-
-/** WCAG contrast ratio of two colours (1 .. 21). */
-export function contrastRatio(a: ColorInput, b: ColorInput): number {
-  const x = luminance(a);
-  const y = luminance(b);
-  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
-}
-
-/** The contrast the outline aims for: against the page (it is cased in the page's colour, so this is the one that always holds) and against the cell (WCAG 1.4.11 asks 3:1 of a graphical object; the same, so that it holds on a glowing block). */
-export const OUTLINE_CONTRAST = { background: 4.5, cell: 4.5 };
-
-/**
- * The outline round a cell, monochrome: the grey of the lightness that best reaches `OUTLINE_CONTRAST` against both the cell and the page (`background`: half of the outline is over the ground, half over the block), the nearest to the cell's own
- * lightness on a tie. So a light cell gets a dark grey, a dark one a light grey, and a mid one whichever side the page is not on; the hue of the cell is not used (a green block does not get a purple line). Always a grey `#rrggbb`. Pure.
- */
-export function invertedOutline(cell: ColorInput, background: ColorInput): string {
-  const l0 = srgbToOklch(parseColor(cell)).l;
-  let best = { score: -1, dist: 9, rgb: [0, 0, 0] as [number, number, number] };
-  for (let L = 0.04; L <= 0.985; L += 0.005) {
-    const rgb = fromGrey(L);
-    const c = hex(rgb);
-    const score = Math.min(1, contrastRatio(c, background) / OUTLINE_CONTRAST.background, contrastRatio(c, cell) / OUTLINE_CONTRAST.cell);
-    const dist = Math.abs(L - l0);
-    if (score > best.score + 1e-3 || (Math.abs(score - best.score) <= 1e-3 && dist < best.dist)) best = { score, dist, rgb };
-  }
-  return hex(best.rgb);
-}

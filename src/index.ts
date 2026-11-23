@@ -124,7 +124,6 @@ export function createActivityGraph(container: HTMLElement, options: GraphOption
 export * from "./pure";
 export { createHoverOverlay } from "./overlay";
 export type { HoverOverlay, OverlayOptions } from "./overlay";
-export { contrastRatio, invertedOutline } from "./color";
 export { cardPosition, formatDay, outlinePath } from "./overlay-math";
 export { renderSize } from "./size";
 export { DEFAULT_COLORS } from "./graph";

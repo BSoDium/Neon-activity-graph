@@ -42,7 +42,7 @@ const options = (): GraphOptions => ({
   sound: $<HTMLInputElement>("sound").checked,
   lite: $<HTMLInputElement>("lite").checked ? true : "auto",
   grain: Number($<HTMLInputElement>("grain").value),
-  overlay: $<HTMLSelectElement>("outline").value === "off" ? false : { card: false, outlineColor: $<HTMLSelectElement>("outline").value as "inverted" | "text" },
+  overlay: $<HTMLSelectElement>("outline").value === "off" ? false : { card: false, outlineColor: $<HTMLSelectElement>("outline").value as "auto" | "cased" | "text" },
   colors: PALETTES[$<HTMLSelectElement>("palette").value],
   rodColor: $<HTMLInputElement>("lights").checked ? lights : undefined,
   background: (theme) => getComputedStyle(document.body).backgroundColor || (theme === "dark" ? "#0b0b0e" : "#f6f6f4"),

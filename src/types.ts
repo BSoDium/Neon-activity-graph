@@ -41,10 +41,8 @@ export interface HoverInfo {
   /** Index in the grid of days (weeks x 7, oldest first). */
   index: number;
   date: string;
-  /** The colour of the column's glass (`#rrggbb`): its taller block's colour (as seen: paler in the light theme, where the glass is a shell). What `outlineColor: "inverted"` turns round. */
-  color: string;
-  /** The page's colour behind the picture (`#rrggbb`), as the graph resolved it. */
-  background: string;
+  /** The theme the graph is drawn in. */
+  theme: "light" | "dark";
   /** What made this day the selected one: the mouse (`"pointer"`), a tap (`"touch"`) or the keyboard (`"key"`, the arrow keys, Home, End, PageUp, PageDown or the focus landing on the graph). A host can gate its live region or word its hint on it ("click" or "tap"), and draw its own focus state when it is `"key"`. */
   source: "pointer" | "touch" | "key";
   /** The values of the two layers on that day. */

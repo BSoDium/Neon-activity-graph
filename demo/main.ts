@@ -102,7 +102,7 @@ const mount = () => {
     strips: narrow.matches ? 4 : 1,
     theme: theme ?? "auto",
     colors: toColors(pair),
-    overlay: { outlineColor: new URLSearchParams(location.search).get("outline") === "text" ? "text" : "inverted" },
+    overlay: { outlineColor: new URLSearchParams(location.search).get("outline") === "text" ? "text" : "auto" },
     debug: location.search.includes("debug") || location.search.includes("hold") ? { metrics: location.search.includes("debug"), neonHold: location.search.includes("hold") ? Number(new URLSearchParams(location.search).get("hold")) || true : undefined } : undefined,
     onRedrawn: () => {
       if (!pending) return;

@@ -10,9 +10,11 @@ export interface CutawayOptions {
   dot?: number;
   /** How noisy the screen is, 0 (a regular halftone) to 1 (a pure noise at the cell's scale); default 0.75: a grainy gradient. */
   noise?: number;
+  /** How much the opacity of the dots varies, 0 (all alike) to 1 (from clear to opaque); default 0.6. */
+  variation?: number;
 }
 
-export const CUTAWAY_DEFAULTS = { strength: 0.6, dot: 3, noise: 0.75 } as const;
+export const CUTAWAY_DEFAULTS = { strength: 0.6, dot: 1, noise: 0.9, variation: 0.6 } as const;
 /** Eased with this time constant, in ms. */
 export const CUTAWAY_TAU_MS = 90;
 /** The half-width of a day's block, and how far the rays that look for what is in the way are drawn in from the selected day's edge (a neighbour that only brushes its silhouette is not in the way). */
@@ -20,13 +22,14 @@ export const BLOCK_HALF = 0.46;
 export const SAMPLE_INSET = 0.22;
 
 /** Resolves user options: `false` is off, `undefined`/`true` the defaults. */
-export function resolveCutaway(o: CutawayOptions | boolean | undefined): { strength: number; dot: number; noise: number } | null {
+export function resolveCutaway(o: CutawayOptions | boolean | undefined): { strength: number; dot: number; noise: number; variation: number } | null {
   if (o === false) return null;
   const c = typeof o === "object" ? o : {};
   const strength = Math.min(1, Math.max(0, c.strength ?? CUTAWAY_DEFAULTS.strength));
   const dot = Math.min(32, Math.max(0, c.dot ?? CUTAWAY_DEFAULTS.dot));
   const noise = Math.min(1, Math.max(0, c.noise ?? CUTAWAY_DEFAULTS.noise));
-  return strength > 0 ? { strength, dot, noise } : null;
+  const variation = Math.min(1, Math.max(0, c.variation ?? CUTAWAY_DEFAULTS.variation));
+  return strength > 0 ? { strength, dot, noise, variation } : null;
 }
 
 export interface Box {
@@ -120,7 +123,7 @@ export const CUT_VERTEX = "  vCutCell = aCell;";
  * GLSL, fragment stage: the day's fade is read from a texture, one texel a day. The fragment is dropped where a halftone screen (a 45-degree grid of dots, `uCutDot` pixels a cell) is below the fade: the holes are dots at first, then
  * merge into a mesh, and what is left of the block as it goes is dots of it; the camera's sub-pixel jitter, over the accumulated samples, smooths the edges of the dots. With no dot (`uCutDot` 0), a noise whose threshold is spread evenly over the samples.
  */
-export const CUT_DECLS_FRAGMENT = "varying float vCutCell;\nuniform highp sampler2D uCutFade;\nuniform float uCutStrength;\nuniform float uCutSeed;\nuniform float uCutDot;\nuniform float uCutNoise;";
+export const CUT_DECLS_FRAGMENT = "varying float vCutCell;\nuniform highp sampler2D uCutFade;\nuniform float uCutStrength;\nuniform float uCutSeed;\nuniform float uCutDot;\nuniform float uCutNoise;\nuniform float uCutVar;";
 export const CUT_FRAGMENT = `
   {
     float cutF = texelFetch(uCutFade, ivec2(int(vCutCell + 0.5), 0), 0).r * uCutStrength;
@@ -136,6 +139,11 @@ export const CUT_FRAGMENT = `
       } else {
         th = fract(fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) + uCutSeed);
       }
-      if (th <= cutF) discard;
+      if (th <= cutF) {
+        // (a dot is not all or nothing: it takes away only a share of the pixel, a different one for each, over the samples that are averaged, so that the dots are of every opacity, from nearly clear to opaque)
+        float o = mix(1.0 - uCutVar, 1.0, fract(sin(dot(floor(gl_FragCoord.xy), vec2(39.346, 11.135))) * 53758.5453));
+        float cover = fract(fract(sin(dot(floor(gl_FragCoord.xy), vec2(73.156, 52.235))) * 28158.3453) + uCutSeed);
+        if (cover < o) discard;
+      }
     }
   }`;

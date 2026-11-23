@@ -251,6 +251,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         uCutSeed: { value: 0 },
         uCutDot: { value: 0 },
         uCutNoise: { value: cutCfg?.noise ?? 0 },
+        uCutVar: { value: cutCfg?.variation ?? 0 },
       };
       const cutPatch = (mat: import("three").Material) => {
         if (!cutCfg) return;

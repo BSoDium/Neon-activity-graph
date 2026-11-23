@@ -3,9 +3,12 @@ import { createGroundLight, loadCausticTemplates, type CausticTemplates, type Gl
 import { clampTone, sameColor } from "./color";
 import { layoutGraph, type Matrix } from "./layout";
 import { createNeon } from "./neon";
+import { sideShares, type Neighbour } from "./edge-light";
+import { CUT_DECLS_FRAGMENT, CUT_DECLS_VERTEX, CUT_FRAGMENT_FADING, CUT_FRAGMENT_LIGHT, CUT_VERTEX_FADING, CUT_VERTEX_LIGHT, CUT_VERTEX_SOLID, CUT_VERTEX_SOLID_END, inTheWay, resolveCutaway, stepFades } from "./cutaway";
 import { renderSize } from "./size";
 import { createHoverHum } from "./hover-hum";
-import type { ContentBounds, GraphData, GraphOptions, LayerColors, Startup, Tones } from "./types";
+import { dayAfterKey } from "./keys";
+import type { ContentBounds, GraphData, HoverInfo, GraphOptions, LayerColors, Startup, Tones } from "./types";
 import { CAMERA_DIR, glassShades, lightBehind, roomFor, shiftsFromLayers, slabFor } from "./view";
 
 /** How much of the light behind a block of glass the glass takes (the whole of it covering), and the least that is let through however many there are in front. */
@@ -224,8 +227,121 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const DARK_BACKDROP_GAIN = 200;
       /** (dark) the most the light seen behind the glass can add, on its brightest channel (a soft cap that keeps the hue). */
       const DARK_BACKDROP_CAP = 0.15;
+      /** (dark) how much each unit of glass between the camera and the ground dims the ground's light the glass shows (exp(-k * length)). */
+      const GROUND_GLASS_ABSORB = 0.6;
       /** (light theme) how much of the colour of the blocks behind a block (as the camera sees it) its glass takes, when they cover all of its outline. */
       const LIGHT_BEHIND_TINT = 0.85;
+      const cutCfg = resolveCutaway(opts.cutaway);
+      const cutCells = Math.max(1, layout.top.cells.length);
+      // (one number a day, 0 to 1: how far the day is faded away; eased on the CPU, read by the blocks' shaders)
+      const cutFade = new Float32Array(cutCells);
+      const cutTex = new THREE.DataTexture(cutFade, cutCells, 1, THREE.RedFormat, THREE.FloatType);
+      cutTex.needsUpdate = true;
+      const cutU = {
+        uCutFade: { value: cutTex },
+        uCutStrength: { value: cutCfg?.strength ?? 0 },
+      };
+      // --- the cutaway: the days in the way of the selected one fade out, whole (see `cutaway.ts`); the uniforms are shared by every block material ---
+      // (a solid block (the glass, the light theme's core) is drawn twice: by its own material, opaque, which leaves out the blocks that are fading, and by a fading twin, blended and writing no depth, which draws only those, with the
+      // fade as its alpha. So the picture at rest is the opaque one, untouched, and a fading block hides nothing drawn after it: what is behind it shows through it. The twins are one mesh a block, drawing its own range of the solid
+      // mesh's buffers, shown only while that block is part-way faded, and drawn back to front along the camera's fixed view (their `renderOrder`, ranked once at a build), so two fading blocks over one another blend in the right order.)
+      // (a light drawn additively (a rod) is not doubled: it fades by its colour)
+      const cutTwins: import("three").Mesh[] = [];
+      const cutShowTwins = () => {
+        const k = cutCfg?.strength ?? 0;
+        let any = false;
+        for (const t of cutTwins) {
+          const f = cutFade[t.userData.cell as number] ?? 0;
+          t.visible = f > 0 && f * k < 1;
+          any ||= t.visible;
+        }
+        groundFirst(any);
+      };
+      // (the layers that lie on the ground (the sun's shadow, the ground's light, the contact shadows) are drawn over the glass, as transparent things, where the glass's foot dips under them. A block fading in the cutaway, which
+      // writes no depth, would have them drawn over it too, so while one fades they are drawn with the opaque things instead, before the glass (three.js keeps the blending of a material that is not `transparent`, as it does for
+      // the rods; a normal blend is spelt out, as it would be dropped). The dark theme draws them that way always; the light theme only while a block fades, so that its picture at rest is the one it always was.)
+      const groundSwitches = new Set<(first: boolean) => void>();
+      let groundIsFirst: boolean | null = null;
+      const groundFirst = (fading: boolean) => {
+        const first = fading || isDark();
+        if (first === groundIsFirst) return;
+        groundIsFirst = first;
+        for (const f of groundSwitches) f(first);
+      };
+      /** Registers a ground layer: drawn at `renderOrder` `order` over the glass, or `first` (from 1) before it. Returns its unregistering. */
+      const groundLayer = (mesh: import("three").Mesh, order: number, first: number) => {
+        const mat = mesh.material as import("three").Material;
+        const normal = mat.blending === THREE.NormalBlending;
+        mat.blendSrc = THREE.SrcAlphaFactor;
+        mat.blendDst = THREE.OneMinusSrcAlphaFactor;
+        mat.blendSrcAlpha = THREE.OneFactor;
+        mat.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+        const set = (on: boolean) => {
+          mat.transparent = !on;
+          if (normal) mat.blending = on ? THREE.CustomBlending : THREE.NormalBlending;
+          mesh.renderOrder = on ? first : order;
+        };
+        set(groundIsFirst ?? isDark());
+        groundSwitches.add(set);
+        return () => void groundSwitches.delete(set);
+      };
+      /** Adds the cutaway's GLSL to a material: `vertex` after `begin_vertex` (and `vertexEnd` after `project_vertex`), and `fragment` before (or `after`) `opaque_fragment`. */
+      const patchCut = (mat: import("three").Material, key: string, vertex: string, fragment?: string, after = false, vertexEnd?: string) => {
+        const base = mat.customProgramCacheKey();
+        const prev = mat.onBeforeCompile;
+        mat.onBeforeCompile = (shader, r) => {
+          prev.call(mat, shader, r);
+          Object.assign(shader.uniforms, cutU);
+          shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_VERTEX).replace("#include <begin_vertex>", "#include <begin_vertex>\n" + vertex);
+          if (vertexEnd) shader.vertexShader = shader.vertexShader.replace("#include <project_vertex>", "#include <project_vertex>\n" + vertexEnd);
+          if (fragment) shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_FRAGMENT).replace("#include <opaque_fragment>", after ? "#include <opaque_fragment>\n" + fragment : fragment + "\n#include <opaque_fragment>");
+        };
+        mat.customProgramCacheKey = () => base + "|cut-" + key;
+      };
+      /** Makes `mat` a solid block's material for the cutaway, and returns its fading twin (null with the cutaway off); call it once `mat` is set up, as the twin is a copy of it. */
+      const cutPatch = <M extends import("three").Material>(mat: M): M | null => {
+        if (!cutCfg) return null;
+        const twin = mat.clone() as M;
+        twin.onBeforeCompile = mat.onBeforeCompile;
+        twin.customProgramCacheKey = mat.customProgramCacheKey;
+        twin.transparent = true;
+        twin.depthWrite = false;
+        patchCut(twin, "fading", CUT_VERTEX_FADING, CUT_FRAGMENT_FADING, true);
+        patchCut(mat, "solid", CUT_VERTEX_SOLID, undefined, false, CUT_VERTEX_SOLID_END);
+        return twin;
+      };
+      /**
+       * The fading twins of `mesh`, merged from `parts` (one a block, in order): a mesh a block, sharing `mesh`'s buffers and drawing its block's range of them, with how near the camera the block is (`depth`, larger is nearer).
+       */
+      const cutTwinMeshes = (mesh: import("three").Mesh, twin: import("three").Material | null, parts: readonly BufferGeometry[]) => {
+        if (!twin) return [];
+        camera.updateMatrixWorld();
+        const toCam = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 2);
+        const src = mesh.geometry;
+        const out: { mesh: import("three").Mesh; depth: number }[] = [];
+        let start = 0;
+        for (const p of parts) {
+          const count = src.index ? p.index!.count : p.getAttribute("position").count;
+          const g = new THREE.BufferGeometry();
+          for (const [k, a] of Object.entries(src.attributes)) g.setAttribute(k, a);
+          g.setIndex(src.index);
+          g.setDrawRange(start, count);
+          start += count;
+          p.computeBoundingBox();
+          const t = new THREE.Mesh(g, twin);
+          t.castShadow = false;
+          t.receiveShadow = mesh.receiveShadow;
+          t.frustumCulled = false;
+          t.userData.cell = p.getAttribute("aCell").getX(0);
+          cutTwins.push(t);
+          out.push({ mesh: t, depth: p.boundingBox!.getCenter(new THREE.Vector3()).dot(toCam) });
+        }
+        return out;
+      };
+      /** Ranks twins back to front, as `renderOrder`s from `base`, in steps of `step`. */
+      const rankTwins = (twins: { mesh: import("three").Mesh; depth: number }[], base: number, step: number) => {
+        twins.sort((p, q) => p.depth - q.depth).forEach((t, i) => (t.mesh.renderOrder = base + i * step));
+      };
       const coreMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
       // (the glass is perfectly clear; it is the core that is soft: its colour fades toward a pale haze of itself toward its silhouette, so it is a blurred glow in the middle of the block, with no hard edge)
       coreMaterial.onBeforeCompile = (shader) => {
@@ -234,6 +350,17 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
           .replace("#include <common>", "#include <common>\nvarying vec3 vCoreN;")
           .replace("#include <color_fragment>", "#include <color_fragment>\n  float cf = pow(clamp(abs(normalize(vCoreN).z), 0.0, 1.0), 0.9);\n  diffuseColor.rgb = mix(mix(diffuseColor.rgb, vec3(1.0), CORE_HAZE), diffuseColor.rgb, cf);".replace("CORE_HAZE", "0.5"));
       };
+      const coreTwin = cutPatch(coreMaterial);
+      // (the core's twin is drawn with the opaque things, after the ground's layers and its backdrop (`renderOrder` 6 to 7) and before the glass, as the solid core is: inside its glass, and seen by it; its blend is spelt out, as
+      // three.js drops a normal blend from a material that is not `transparent`)
+      if (coreTwin) {
+        coreTwin.transparent = false;
+        coreTwin.blending = THREE.CustomBlending;
+        coreTwin.blendSrc = THREE.SrcAlphaFactor;
+        coreTwin.blendDst = THREE.OneMinusSrcAlphaFactor;
+        coreTwin.blendSrcAlpha = THREE.OneFactor;
+        coreTwin.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+      }
       // (in the dark theme the cores are lights: unlit, their colour is the light they give out, brighter than 1 for a busy day, which the bloom and the glow on the ground turn into a glow)
       // (dark) a rod is an emitter, not an absorber: it is drawn ADDITIVELY (`transparent` stays false, so that it is in the opaque pass the glass sees, and three.js still blends it additively): it adds its light to what is behind it and takes none away, so a dim rod is a faint light over whatever is lit there and an off rod is not there at all
       /** (dark) a rod's brightest channel is compressed above `ROD_KNEE` towards `ROD_MAX` (any hue), and whitened by up to `ROD_WHITE` where it is brightest. */
@@ -256,6 +383,26 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const LAYER_FILTER_PURITY = 0.72;
       /** (dark) how much of the light the neighbours give out the glass of a block glows with: inside a group of lamps no glass is dark, and an isolated block's is. */
       const NEIGHBOUR_GLOW = 0.22;
+      /** (dark) a dim block's glass: what is left of its own glow on its flat faces and what its rounded edges add to it (so it is dark, with its edges catching the light), and the same for the light of the blocks next to it. */
+      /** How quiet a day is (1: the quietest, 0: not at all) from its own level `t`: a smoothstep from 0.4 to 0.95. */
+      const dimStep = (t: number) => {
+        const x = Math.min(1, Math.max(0, (t - 0.4) / 0.55));
+        return x * x * (3 - 2 * x);
+      };
+      const DIM_FLAT = 0.03;
+      const DIM_EDGE = 0.35;
+      const NB_FLAT = 0.02;
+      const NB_EDGE = 3.2;
+      /** (dark) how much darker the glass of a quiet day is (what is seen through it and what falls on it are multiplied by its colour). */
+      const DIM_BODY = 0.35;
+      /** (dark) how much less of the light of the neighbours a quiet day's own rod takes (it is lit by them where its own is off): a dim rod beside a bright one stays dim. */
+      const DIM_ROD_INC = 0.9;
+      /** (dark) how much of the room's reflections (the environment, which the glass takes more of the lighter its rod) a quiet day's glass loses: it is not a mirror that shines the more its neighbours do. */
+      const DIM_ENV = 0.85;
+      /** (dark) how far even a lit block's own glow is confined to its edges (0: not at all, 1: as much as a quiet one's): its glass is not a lamp all over, the rod is. */
+      const LIT_FLAT_SHARE = 0.75;
+      /** (dark) how much less of what is behind it a quiet day's glass shows (0 is the same as a lit one's). */
+      const DIM_SEE = 0.3;
       /** How much light behind a block it takes to light its glass most of the way (the share is `1 - e^-(light behind / this)`). */
       const BEHIND_SCALE = 1.6;
       /** How far the neighbours' light is tinted by the block's own colour, 0 to 1. */
@@ -265,7 +412,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       // (the light of several neighbours of different colours adds up towards grey: it is pushed back to its colour, so that the glass takes the colour of the lamps around it, not a milk)
       const GLOW_SATURATION = 2.5;
       /** (dark) the least a green rod gives out, in the units of `emit(t) * (1 + 1.1 t)` (0.5 for the quietest day, about 3 for the busiest): a quiet green day still shows green, even over a bright blue block, whose light would otherwise be most of what lights it. */
-      const GREEN_MIN_LEVEL = 1.1;
+      const GREEN_MIN_LEVEL = 0.7;
       const DARK_GLASS_ROUGHNESS = 0.04;
       const OFF_EMISSIVE = 0.0012;
       const OFF_ENV = 0.004;
@@ -274,17 +421,27 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const levelData = new Float32Array(MAX_LEVELS * 2).fill(1);
       const levelTex = new THREE.DataTexture(levelData, MAX_LEVELS, 1, THREE.RGFormat, THREE.FloatType);
       levelTex.needsUpdate = true;
+      // (the lamps the glass reflects: a row for where each rod stands (x, z, its foot, its top) and a row for its colour at full level; its level is in `levelTex`)
+      const lampData = new Float32Array(MAX_LEVELS * 2 * 4);
+      const lampTex = new THREE.DataTexture(lampData, MAX_LEVELS, 2, THREE.RGBAFormat, THREE.FloatType);
+      lampTex.needsUpdate = true;
+      /** (dark) how many lamps a block's glass reflects, and how far they can be. */
+      const REFLECTED_LAMPS = 8;
+      const REFLECT_RANGE = 9;
+      /** How much of the lamp's own hue the reflections take, against its core's whitened colour (1: all). */
+      const REFLECT_PURITY = 0.9;
       glowMaterial.onBeforeCompile = (shader) => {
         shader.uniforms.uLevels = { value: levelTex };
         shader.vertexShader = shader.vertexShader
-          .replace("#include <common>", "#include <common>\nattribute float aBlock;\nattribute vec3 aInc;\nattribute vec2 aCtr;\nvarying float vRodA;\nuniform highp sampler2D uLevels;")
-          .replace("#include <color_vertex>", "#include <color_vertex>\n#ifdef USE_COLOR\n  vec2 lv = texelFetch(uLevels, ivec2(int(aBlock + 0.5), 0), 0).rg;\n  float rodB = max(vColor.r, max(vColor.g, vColor.b)) * lv.r;\n  vColor.rgb = vColor.rgb * lv.r + vec3(0.029, 0.037, 0.053) * (1.0 - lv.r) + aInc * lv.g;\n  vRodA = smoothstep(0.0, 3.0, rodB);\n  float rodL = dot(vColor.rgb, vec3(0.299, 0.587, 0.114));\n  vColor.rgb = max(vec3(0.0), mix(vec3(rodL), vColor.rgb, 1.3 + 1.8 * (1.0 - clamp(lv.r, 0.0, 1.0))));\n#endif")
+          .replace("#include <common>", "#include <common>\nattribute float aBlock;\nattribute vec3 aInc;\nattribute vec2 aCtr;\nattribute float aDim;\nvarying float vRodA;\nuniform highp sampler2D uLevels;")
+          .replace("#include <color_vertex>", "#include <color_vertex>\n#ifdef USE_COLOR\n  vec2 lv = texelFetch(uLevels, ivec2(int(aBlock + 0.5), 0), 0).rg;\n  float rodB = max(vColor.r, max(vColor.g, vColor.b)) * lv.r;\n  vColor.rgb = vColor.rgb * lv.r + vec3(0.029, 0.037, 0.053) * (1.0 - lv.r) + aInc * lv.g * (1.0 - " + DIM_ROD_INC.toFixed(2) + " * aDim);\n  vRodA = smoothstep(0.0, 3.0, rodB);" + "\n  float rodL = dot(vColor.rgb, vec3(0.299, 0.587, 0.114));\n  vColor.rgb = max(vec3(0.0), mix(vec3(rodL), vColor.rgb, 1.3 + 1.8 * (1.0 - clamp(lv.r, 0.0, 1.0))));\n#endif")
           .replace("#include <begin_vertex>", "#include <begin_vertex>\n  transformed.xz = aCtr + (transformed.xz - aCtr) * mix(0.6, 1.0, smoothstep(0.0, 2.5, rodB));");
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", "#include <common>\nvarying float vRodA;")
           .replace("#include <color_fragment>", "#include <color_fragment>\n  diffuseColor.rgb *= vRodA;\n  // (a very bright rod is not a flat blob of its colour: above the knee its level is compressed, whatever its hue, and what is left of it is whitened a little, as a real light too bright for the eye or the film turns to a hot white core with the colour round it; the faces' shading survives, as a smaller difference)\n  float rm = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));\n  if (rm > " + ROD_KNEE.toFixed(2) + ") {\n    float rc = " + ROD_KNEE.toFixed(2) + " + " + (ROD_MAX - ROD_KNEE).toFixed(2) + " * tanh(min((rm - " + ROD_KNEE.toFixed(2) + ") / " + (ROD_MAX - ROD_KNEE).toFixed(2) + ", 12.0));\n    // (only a SATURATED rod is held back: a pale one, like the stock blue whose brightness is light added to all three channels, is already a hot core and keeps its full power)\n    float rs = smoothstep(0.62, 0.85, (rm - min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b))) / rm);\n    diffuseColor.rgb = mix(diffuseColor.rgb, mix(diffuseColor.rgb * (rc / rm), vec3(rc), " + ROD_WHITE.toFixed(2) + " * smoothstep(" + ROD_KNEE.toFixed(2) + ", 3.0, rm)), rs);\n  }");
       };
       glowMaterial.customProgramCacheKey = () => "rod-levels";
+      if (cutCfg) patchCut(glowMaterial, "light", CUT_VERTEX_LIGHT, CUT_FRAGMENT_LIGHT);
       // `shade` (dark theme): the faces of a block are not all lit alike, as if the light were from above and to the left of the camera, and a block is brighter toward its top: its top is the brightest face, then the side that
       // faces left, then the one that faces the viewer, and the foot is dimmer. An emissive block has no light on it to give it a form, so this puts the form back (without it a busy blue stretch is a field of flat boxes).
       const paint = (g: BufferGeometry, col: Color, glow = 0, shade = false) => {
@@ -346,7 +503,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       // the traced light is counted on a grid half as fine: enough rays in each cell to look like light and not like grain
       const LPX = PX / 2;
       let neonNeighbours: { j: number[]; m: number[] }[] = [];
-      let neonBlocks: { x: number; z: number; pan: number; t: number; cell: number; peak: number }[] = [];
+      let neonBlocks: { x: number; z: number; pan: number; t: number; cell: number; peak: number; lumi: number }[] = [];
       let stampCtl: { update(levels: ArrayLike<number>): void } | null = null;
       // (dark) sets how much of its lamps' light each pit has, from the blocks' levels (the pits' shading follows the neon, see `groundLayers`)
       let pitLight: ((levels: ArrayLike<number>) => void) | null = null;
@@ -457,6 +614,8 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
               : rodLight(src, hue, t, 1);
             // (how bright the rod is at its full level, as drawn: the selection lifts a quiet one to a minimum, see `focusOn`)
             const peak = Math.max(rod.r, rod.g, rod.b) * (cust ? 0.55 : 1);
+            // (and how bright it is to the eye: a blue rod has a third of the luminance of a green one at the same strongest channel, so a floor on the channel alone leaves a small blue block dull)
+            const lumi = lum(rod) * (cust ? 0.55 : 1);
             const col = dark ? rod.multiplyScalar(1 / Math.max(1e-4, rod.r, rod.g, rod.b)) : hue;
             // (`rodColor`: a white light adds to all three channels, so on the ground it washes out the colours around it: it lights the ground half as much)
             const whiteLight = cust && Math.max(hue.r, hue.g, hue.b) - Math.min(hue.r, hue.g, hue.b) < 0.15 * Math.max(hue.r, hue.g, hue.b) ? 0.5 : 1;
@@ -466,7 +625,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
             const near = dark ? CAUSTIC_NEAR : SUN_NEAR;
             const far = dark ? CAUSTIC_FAR : SUN_FAR;
             neonBlocks.push({ x, z, // (the camera looks along -z, so the world's +x is on the LEFT of the screen: the stereo place is the other way round)
-            pan: 1 - (x / width) * 2, t, cell: i, peak });
+            pan: 1 - (x / width) * 2, t, cell: i, peak, lumi });
             glass.push({
               c: [x, y0 + hy, z],
               h: [0.46, hy, 0.46],
@@ -519,14 +678,19 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
           mesh.rotation.x = -Math.PI / 2;
           // (just above the empty tiles: the glow and the contact shadows lie over them as over the ground, so a tile is lit by its neighbours like the rest of the scene)
           mesh.position.set(width / 2, 0.11 + order * 0.002, total / 2);
-          mesh.renderOrder = order;
+          // (over the glass, or before it (see `groundLayer`))
+          const unregister = groundLayer(mesh, order, 1 + order);
           layers.add(mesh);
           disposers.push(() => {
+            unregister();
             tex.dispose();
             mat.dispose();
           });
         };
-        if (dark) plane(ground.texture, (map) => new THREE.MeshBasicMaterial({ map, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), 1);
+        if (dark) plane(ground.texture, (map) => {
+          const gm = new THREE.MeshBasicMaterial({ map, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+          return gm;
+        }, 1);
         else {
           // (the difference to the sun's light, turned into what multiplies the ground and what is added to it)
           const resolve = (shade: boolean) =>
@@ -681,6 +845,8 @@ void main() {
             uBackdrop.value = r.getRenderTarget() === sceneRT ? 0 : 1;
           };
           proxy.frustumCulled = false;
+          // (after the ground's layers, which are drawn into what the glass sees too: it covers them there)
+          proxy.renderOrder = 5;
           layers.add(proxy);
           disposers.push(() => {
             bake.dispose();
@@ -693,16 +859,59 @@ void main() {
           // very texture the glow is drawn from, which hover and the start-up update in place: the glass sees the live light, the picture itself is unchanged.
           const uBackdrop = { value: 0 };
           const proxyMat = new THREE.MeshBasicMaterial({ map: ground.texture, toneMapped: false });
+          // (each block of glass dims the ground's light a little: the light the glass shows is dimmed by how much glass lies between the ground and the camera, along the view ray, found from a map of the columns' heights (a few fetches a pixel, only in what the glass sees))
+          // (a fine grid of the glass's height, the boxes drawn into it at their real places: the days are `PITCH` apart, and the strips are shifted by fractions of it)
+          const HEIGHT_RES = 0.2;
+          const solid = picks.filter((q) => !q.pit);
+          const gx0 = Math.min(...solid.map((q) => q.x - 0.46), 0);
+          const gz0 = Math.min(...solid.map((q) => q.z - 0.46), 0);
+          const cols = Math.max(1, Math.ceil((Math.max(...solid.map((q) => q.x + 0.46), 1) - gx0) / HEIGHT_RES) + 1);
+          const rows = Math.max(1, Math.ceil((Math.max(...solid.map((q) => q.z + 0.46), 1) - gz0) / HEIGHT_RES) + 1);
+          const heights = new Float32Array(cols * rows);
+          for (const q of solid) {
+            const ix0 = Math.max(0, Math.floor((q.x - 0.46 - gx0) / HEIGHT_RES));
+            const ix1 = Math.min(cols - 1, Math.floor((q.x + 0.46 - gx0) / HEIGHT_RES));
+            const iz0 = Math.max(0, Math.floor((q.z - 0.46 - gz0) / HEIGHT_RES));
+            const iz1 = Math.min(rows - 1, Math.floor((q.z + 0.46 - gz0) / HEIGHT_RES));
+            for (let iz = iz0; iz <= iz1; iz++) for (let ix = ix0; ix <= ix1; ix++) heights[iz * cols + ix] = Math.max(heights[iz * cols + ix]!, q.y1);
+          }
+          const heightTex = new THREE.DataTexture(heights, cols, rows, THREE.RedFormat, THREE.FloatType);
+          heightTex.needsUpdate = true;
+          const absorb = GROUND_GLASS_ABSORB;
+          const maxH = tallest;
+          const pw = cw / PX;
+          const ph = ch / PX;
           proxyMat.onBeforeCompile = (shader) => {
             shader.uniforms.uBackdrop = uBackdrop;
             shader.uniforms.uPage = { value: page };
             shader.uniforms.uDim = backdropDim;
+            shader.uniforms.uGlassH = { value: heightTex };
             shader.fragmentShader = shader.fragmentShader
-              .replace("#include <common>", "#include <common>\nuniform float uBackdrop;\nuniform float uDim;\nuniform vec3 uPage;")
+              .replace("#include <common>", "#include <common>\nuniform float uBackdrop;\nuniform float uDim;\nuniform vec3 uPage;\nuniform highp sampler2D uGlassH;")
               .replace("void main() {", softSeen + "\nvoid main() {\n  if (uBackdrop < 0.5) discard;")
-              .replace("#include <opaque_fragment>", `outgoingLight = uPage + uDim * softSeen(outgoingLight);\n#include <opaque_fragment>`);
+              .replace(
+                "#include <opaque_fragment>",
+                `float seen = 1.0;
+#if ${absorb > 0 ? 1 : 0}
+  vec3 P = vec3((vMapUv.x - 0.5) * ${pw.toFixed(3)} + ${(width / 2).toFixed(3)}, 0.0, ${(total / 2).toFixed(3)} - (vMapUv.y - 0.5) * ${ph.toFixed(3)});
+  vec3 toCam = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+  if (toCam.y > 0.05) {
+    float len = 0.0;
+    float stepY = ${maxH.toFixed(3)} / 8.0;
+    for (int i = 0; i < 8; i++) {
+      float y = (float(i) + 0.5) * stepY;
+      vec3 q = P + toCam * (y / toCam.y);
+      vec2 c = floor((q.xz - vec2(${gx0.toFixed(3)}, ${gz0.toFixed(3)})) / ${HEIGHT_RES.toFixed(3)});
+      if (c.x >= 0.0 && c.y >= 0.0 && c.x < ${cols.toFixed(1)} && c.y < ${rows.toFixed(1)} && y < texelFetch(uGlassH, ivec2(c), 0).r) len += stepY / toCam.y;
+    }
+    seen = exp(-${absorb.toFixed(3)} * len);
+  }
+#endif
+outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
+#include <opaque_fragment>`,
+              );
           };
-          proxyMat.customProgramCacheKey = () => "ground-backdrop-dark";
+          proxyMat.customProgramCacheKey = () => "ground-backdrop-dark|" + absorb.toFixed(3) + "|" + cols + "x" + rows + "|" + maxH.toFixed(2) + "|" + gx0.toFixed(2) + "," + gz0.toFixed(2);
           const proxy = new THREE.Mesh(new THREE.PlaneGeometry(cw / PX, ch / PX), proxyMat);
           proxy.rotation.x = -Math.PI / 2;
           proxy.position.set(width / 2, 0.01, total / 2);
@@ -710,9 +919,12 @@ void main() {
             uBackdrop.value = r.getRenderTarget() === sceneRT ? 0 : 1;
           };
           proxy.frustumCulled = false;
+          // (after the ground's layers, which are drawn into what the glass sees too: it covers them there)
+          proxy.renderOrder = 5;
           layers.add(proxy);
           disposers.push(() => {
             proxyMat.dispose();
+            heightTex.dispose();
             proxy.geometry.dispose();
           });
         }
@@ -793,7 +1005,7 @@ void main() {
         const cores: BufferGeometry[] = [];
         const tiles: BufferGeometry[] = [];
         // the layers are first only noted (where, how tall, how busy, which colour), so that each can be lit by the others before its geometry is made
-        interface Spec { src: "bottom" | "top"; x: number; z: number; y0: number; h: number; t: number; hue: Color; cust: boolean }
+        interface Spec { cell: number; src: "bottom" | "top"; x: number; z: number; y0: number; h: number; t: number; hue: Color; cust: boolean }
         const specs: Spec[] = [];
         // (a quiet day still has a faint light at its heart, an old bulb struggling: the floor of the emission)
         // (the lift is for the quietest days only: it fades out well before a busy one)
@@ -802,7 +1014,7 @@ void main() {
           const h = 0.18 + t * LAYER_MAX;
           picks.push({ cell, x, z, y0, y1: y0 + h });
           const cust = customOf(cell, src, t);
-          specs.push({ src, x, z, y0, h, t, hue: cust ?? low.clone().lerp(high, t), cust: !!cust });
+          specs.push({ cell, src, x, z, y0, h, t, hue: cust ?? low.clone().lerp(high, t), cust: !!cust });
           tallest = Math.max(tallest, y0 + h);
           return y0 + h;
         };
@@ -876,7 +1088,19 @@ void main() {
         // (the look of a string of lights is for a picture whose rods are mostly coloured by `rodColor`)
         customLook = specs.length > 0 && specs.filter((q) => q.cust).length / specs.length > 0.5;
         let blockIndex = 0;
+        lampData.fill(0);
         neonNeighbours = [];
+        // (what a rod gives out at full level, as a colour: what a neighbour's glass reflects of it)
+        const lampCols = new Map<(typeof specs)[number], Color>();
+        const lampColour = (q: (typeof specs)[number]): Color => {
+          let c = lampCols.get(q);
+          if (!c) {
+            const lv = Math.max(emit(q.t) * (1 + 1.1 * q.t), q.src === "top" ? GREEN_MIN_LEVEL : 0);
+            c = q.cust ? q.hue.clone().multiplyScalar(lv * 0.55) : rodLight(q.src, q.hue, q.t, lv);
+            lampCols.set(q, c);
+          }
+          return c;
+        };
         // (dark) the light of a rod that has glass in front of it, nearer the camera, is dimmed by that glass: a clump of bright blocks one in front of the other does not add up to one overexposed blob (the camera never moves, so it is known beforehand)
         const shades = dark ? glassShades(specs.map((q) => ({ x: q.x, z: q.z, y0: q.y0, h: q.h })), GLASS_ABSORB, GLASS_FLOOR) : [];
         const shadeOf = new Map(specs.map((q, k) => [q, shades[k] ?? 1] as const));
@@ -918,6 +1142,8 @@ void main() {
           // (dark) the light the other days give out reaches this one: each neighbour's colour and brightness, weakened with the distance between the two blocks; a dim block beside or under a bright one is lit by it
           const inc = new THREE.Color(0, 0, 0);
           const nb: { j: number[]; m: number[] } = { j: [], m: [] };
+          // (the light of the neighbours by the side it comes from: its weight on each of the six faces (+x, +y, +z, -x, -y, -z), as shares of all of it, "baked" once per block, so that the rounded edges light up on the side that faces the lamps and are dark on the side that does not)
+          const lamps: Neighbour[] = [];
           if (dark) {
             for (let oi = 0; oi < specs.length; oi++) {
               const o = specs[oi]!;
@@ -929,7 +1155,9 @@ void main() {
               const k = Math.exp(-(dx * dx + dz * dz + dy * dy) / (2 * 1.2 * 1.2)) * 0.11;
               inc.add(o.hue.clone().multiplyScalar(emit(o.t) * k));
               nb.j.push(oi);
-              nb.m.push(emit(o.t) * k * (o.hue.r + o.hue.g + o.hue.b));
+              const mw = emit(o.t) * k * (o.hue.r + o.hue.g + o.hue.b);
+              nb.m.push(mw);
+              lamps.push({ dx, dy, dz, w: mw });
             }
           }
           neonNeighbours.push(nb);
@@ -948,6 +1176,9 @@ void main() {
           shell.translate(x, y0 + h / 2, z);
           // dark: the glass is nearly clear (the light of its core shows through it); light: tinted by the level
           paint(shell, (dark ? new THREE.Color(0xffffff) : hue.clone().lerp(new THREE.Color(0xffffff), LIGHT_SHELL_WHITE).multiply(behindTint.get(sp) ?? new THREE.Color(1, 1, 1))).add(inc.clone().multiplyScalar(dark && sp.cust ? 0.35 : 0.08)), 0, dark);
+          // (how quiet the day is, by its OWN level, not the one the light of its neighbours lifts it to: what the glass's glow is confined to the edges for)
+          shell.setAttribute("aDim", new THREE.BufferAttribute(new Float32Array(shell.getAttribute("position").count).fill(1 - dimStep(t)), 1));
+          shell.setAttribute("aCell", new THREE.BufferAttribute(new Float32Array(shell.getAttribute("position").count).fill(sp.cell), 1));
           shell.setAttribute("aBlock", new THREE.BufferAttribute(new Float32Array(shell.getAttribute("position").count).fill(blockIndex), 1));
           // (the light of the neighbours, for the glass to glow with: see `NEIGHBOUR_GLOW`; only where there are lamps BEHIND the glass as the camera sees it, and none against a dark background, or the glass would look opaque and washed out)
           const nbShare = glowOf.get(sp) ?? 0;
@@ -958,6 +1189,35 @@ void main() {
           })();
           const vcount = shell.getAttribute("position").count;
           shell.setAttribute("aInc", new THREE.BufferAttribute(repeat(vcount, inc.r * nbShare, inc.g * nbShare, inc.b * nbShare), 3));
+          const shares = sideShares(lamps);
+          shell.setAttribute("aSideP", new THREE.BufferAttribute(repeat(vcount, ...shares.pos), 3));
+          shell.setAttribute("aSideN", new THREE.BufferAttribute(repeat(vcount, ...shares.neg), 3));
+          // (the lamps this glass reflects: the brightest, nearest rods of the other days, up to `REFLECTED_LAMPS`, found once here; their colour, position and level are fetched in the shader)
+          if (dark && blockIndex < MAX_LEVELS) {
+            // (the colour of the reflection is the rod's own hue at the rod's brightness, not its core's, which is lifted toward white and would make a grey streak)
+            const col = lampColour(sp).clone();
+            const hm = Math.max(hue0.r, hue0.g, hue0.b, 1e-3);
+            const pure = hue0.clone().multiplyScalar(Math.max(col.r, col.g, col.b) / hm);
+            col.lerp(pure, REFLECT_PURITY);
+            lampData.set([x, z, y0, y0 + h], blockIndex * 4);
+            lampData.set([col.r, col.g, col.b, 0], (MAX_LEVELS + blockIndex) * 4);
+          }
+          const near = new Array<number>(REFLECTED_LAMPS).fill(-1);
+          if (dark) {
+            const best: { j: number; s: number }[] = [];
+            for (let oi = 0; oi < specs.length && oi < MAX_LEVELS; oi++) {
+              const o = specs[oi]!;
+              if (o === sp || (o.x === x && o.z === z)) continue;
+              const d2 = (o.x - x) ** 2 + (o.z - z) ** 2;
+              if (d2 > REFLECT_RANGE * REFLECT_RANGE) continue;
+              const c = lampColour(o);
+              best.push({ j: oi, s: Math.max(c.r, c.g, c.b) / (1 + d2) });
+            }
+            best.sort((p, q) => q.s - p.s);
+            for (let k = 0; k < REFLECTED_LAMPS; k++) near[k] = best[k]?.j ?? -1;
+          }
+          shell.setAttribute("aNear", new THREE.BufferAttribute(repeat(shell.getAttribute("position").count, near[0]!, near[1]!, near[2]!, near[3]!), 4));
+          shell.setAttribute("aNear2", new THREE.BufferAttribute(repeat(shell.getAttribute("position").count, near[4]!, near[5]!, near[6]!, near[7]!), 4));
           shell.setAttribute("aTint", new THREE.BufferAttribute(repeat(vcount, glowTint.r, glowTint.g, glowTint.b), 3));
           // the glass of a busy day glows on its own surface too (dark theme): three steps of emission per source, each its own material
           const tier = tEff < 0.34 ? 0 : tEff < 0.67 ? 1 : 2;
@@ -985,6 +1245,8 @@ void main() {
             if (dark) for (let q = 0; q < count; q++) inc.toArray(incs, q * 3);
             core.setAttribute("aInc", new THREE.BufferAttribute(incs, 3));
           }
+          core.setAttribute("aDim", shell.getAttribute("aDim")!.clone());
+          core.setAttribute("aCell", new THREE.BufferAttribute(new Float32Array(core.getAttribute("position").count).fill(sp.cell), 1));
           core.setAttribute("aBlock", new THREE.BufferAttribute(new Float32Array(core.getAttribute("position").count).fill(blockIndex++), 1));
           // (where the rod stands, across: a dim rod is drawn thinner about it)
           core.setAttribute("aCtr", new THREE.BufferAttribute(repeat(core.getAttribute("position").count, x, z), 2));
@@ -1068,6 +1330,7 @@ void main() {
           group.add(rim);
         }
         const materials: import("three").MeshPhysicalMaterial[] = [];
+        const glassTwins: { mesh: import("three").Mesh; depth: number }[] = [];
         for (const [key, list] of shellsBy) {
           yield;
           const [src, tier] = shellTier.get(key)!;
@@ -1096,17 +1359,19 @@ void main() {
             // the glass shines as its rod does, down to a little ambient light of the night (the floor 0.14): its own glow and the room's reflections in it follow the rod's level, so that a block whose rod is off is dark
             mat.onBeforeCompile = (shader) => {
               shader.uniforms.uLevels = { value: levelTex };
+              shader.uniforms.uLamps = { value: lampTex };
               // (what is left of the glow and of the reflections when the rod is off is the same for every block, whatever its size or its day: as a share of this tier's own intensities, whatever they are)
               shader.uniforms.uFloorEm = { value: OFF_EMISSIVE / Math.max(mat.emissiveIntensity, 1e-4) };
               shader.uniforms.uFloorEnv = { value: mat.envMapIntensity > 0 ? OFF_ENV / mat.envMapIntensity : 0 };
               shader.vertexShader = shader.vertexShader
-                .replace("#include <common>", "#include <common>\nattribute float aBlock;\nattribute vec3 aInc;\nattribute vec3 aTint;\nvarying vec3 vInc;\nvarying vec3 vTint;\nuniform highp sampler2D uLevels;\nuniform float uFloorEm;\nuniform float uFloorEnv;\nvarying float vLevelEm;\nvarying float vLevelEnv;\nvarying float vOn;")
-                .replace("#include <begin_vertex>", "#include <begin_vertex>\n  vec2 lv = texelFetch(uLevels, ivec2(int(aBlock + 0.5), 0), 0).rg;\n  float own = max(lv.r, 0.3 * lv.g);\n  vOn = clamp(own, 0.0, 1.0);\n  vLevelEm = max(own, uFloorEm);\n  vLevelEnv = max(own, uFloorEnv);\n  vInc = aInc * lv.g * lv.g * lv.g;\n  vTint = aTint;");
+                .replace("#include <common>", "#include <common>\nattribute float aBlock;\nattribute vec3 aInc;\nattribute vec3 aTint;\nattribute vec3 aSideP;\nattribute vec3 aSideN;\nvarying vec3 vSideP;\nvarying vec3 vSideN;\nattribute float aDim;\nvarying float vDim;\nvarying vec3 vInc;\nvarying vec3 vTint;\nuniform highp sampler2D uLevels;\nuniform float uFloorEm;\nuniform float uFloorEnv;\nvarying float vLevelEm;\nvarying float vLevelEnv;\nvarying float vOn;\nvarying float vFoc;\nvarying vec3 vObjN;\nattribute vec4 aNear;\nattribute vec4 aNear2;\nvarying vec4 vNear;\nvarying vec4 vNear2;\nvarying vec3 vWP;")
+                .replace("#include <begin_vertex>", "#include <begin_vertex>\n  vObjN = normal;\n  vSideP = aSideP;\n  vSideN = aSideN;\n  vDim = aDim;" + "\n  vec2 lv = texelFetch(uLevels, ivec2(int(aBlock + 0.5), 0), 0).rg;\n  float own = max(lv.r, 0.3 * lv.g);\n  vOn = clamp(own, 0.0, 1.0);\n  vLevelEm = max(own, uFloorEm);\n  vLevelEnv = max(own, uFloorEnv) * (1.0 - " + DIM_ENV.toFixed(2) + " * aDim);\n  vInc = aInc * lv.g * lv.g * lv.g;\n  vTint = aTint;\n  vFoc = lv.r;\n  vNear = aNear;\n  vNear2 = aNear2;\n  vWP = (modelMatrix * vec4(position, 1.0)).xyz;");
               shader.fragmentShader = shader.fragmentShader
-                .replace("#include <common>", "#include <common>\nvarying float vLevelEm;\nvarying float vLevelEnv;\nvarying float vOn;\nvarying vec3 vInc;\nvarying vec3 vTint;")
-                .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  // (right off, the glass glows the same cool grey whatever its source; as soon as there is a light in it, its own colour, darker the dimmer the light: a dimmed block is a tinted, darker one, not a grey one)\n  float offGrey = 1.0 - smoothstep(0.05, 0.6, vOn);\n  totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(dot(totalEmissiveRadiance, vec3(0.333))) * vec3(0.85, 0.95, 1.15), offGrey) * mix(pow(vLevelEm, 2.0), vLevelEm, offGrey);\n  vec3 nb = min(vInc * " + NEIGHBOUR_GLOW.toFixed(3) + ", vec3(0.1));\n  nb = max(vec3(0.0), mix(vec3(dot(nb, vec3(0.299, 0.587, 0.114))), nb, " + GLOW_SATURATION.toFixed(2) + "));\n  nb *= mix(vec3(1.0), vTint, smoothstep(0.05, 0.6, vOn) * mix(" + GLOW_TINT_FAINT.toFixed(3) + ", 1.0, smoothstep(0.02, 0.1, max(nb.r, max(nb.g, nb.b)))));\n  totalEmissiveRadiance += nb;")
+                .replace("#include <common>", "#include <common>\nvarying float vLevelEm;\nvarying float vLevelEnv;\nvarying float vOn;\nvarying float vFoc;\nvarying float vDim;\nvarying vec3 vSideP;\nvarying vec3 vSideN;\nvarying vec3 vObjN;\nvarying vec3 vInc;\nvarying vec3 vTint;\nvarying vec4 vNear;\nvarying vec4 vNear2;\nvarying vec3 vWP;\nuniform highp sampler2D uLevels;\nuniform highp sampler2D uLamps;")
+                .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  // (right off, the glass glows the same cool grey whatever its source; as soon as there is a light in it, its own colour, darker the dimmer the light: a dimmed block is a tinted, darker one, not a grey one)\n  float offGrey = 1.0 - smoothstep(0.05, 0.6, vOn);\n  totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(dot(totalEmissiveRadiance, vec3(0.333))) * vec3(0.85, 0.95, 1.15), offGrey) * mix(pow(vLevelEm, 2.0), vLevelEm, offGrey);\n  // (a dim block is not a lit one: its glass does not glow all over, evenly, from the light of the blocks next to it, which would make it a milky, jelly-like cube; the light shows where light shows on glass, as streaks on its rounded edges, and its flat faces stay dark)\n  float edgeK = smoothstep(0.03, 0.4, 1.0 - max(abs(vObjN.x), max(abs(vObjN.y), abs(vObjN.z))));\n  float dimK = max(dimE, 1.0 - smoothstep(0.5, 0.95, vOn));\n  totalEmissiveRadiance *= mix(1.0, " + DIM_FLAT.toFixed(2) + " + " + DIM_EDGE.toFixed(2) + " * edgeK, max(dimK, " + LIT_FLAT_SHARE.toFixed(2) + "));\n  vec3 nb = min(vInc * " + NEIGHBOUR_GLOW.toFixed(3) + ", vec3(0.1));\n  nb = max(vec3(0.0), mix(vec3(dot(nb, vec3(0.299, 0.587, 0.114))), nb, " + GLOW_SATURATION.toFixed(2) + "));\n  nb *= mix(vec3(1.0), vTint, smoothstep(0.05, 0.6, vOn) * mix(" + GLOW_TINT_FAINT.toFixed(3) + ", 1.0, smoothstep(0.02, 0.1, max(nb.r, max(nb.g, nb.b)))));\n  float sideK = dot(max(vObjN, 0.0), vSideP) + dot(max(-vObjN, 0.0), vSideN);\n  nb *= " + NB_FLAT.toFixed(2) + " + " + NB_EDGE.toFixed(2) + " * edgeK * smoothstep(0.0, 0.6, sideK);\n  totalEmissiveRadiance += nb;\n  // (the lit blocks round this one are in its glass as specular reflections, in their own colour: the view ray bounced off the surface is followed to the rods, as vertical lines of light, and where it passes near one the glass shows a streak of it, brighter at grazing angles; a dim block, which has no light of its own, is made by them)\n  {\n    vec3 Nw = inverseTransformDirection(normal, viewMatrix);\n    vec3 Vw = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));\n    vec3 Rw = reflect(-Vw, Nw);\n    float rr = dot(Rw.xz, Rw.xz);\n    vec3 spec = vec3(0.0);\n    for (int k = 0; k < 8; k++) {\n      float id = k < 4 ? vNear[k] : vNear2[k - 4];\n      if (id < -0.5) continue;\n      int ix = int(id + 0.5);\n      float lvl = min(texelFetch(uLevels, ivec2(ix, 0), 0).r, 1.7);\n      lvl *= lvl;\n      if (lvl < 0.01) continue;\n      vec4 lamp = texelFetch(uLamps, ivec2(ix, 0), 0);\n      vec3 lc = texelFetch(uLamps, ivec2(ix, 1), 0).rgb;\n      vec2 dd = lamp.xy - vWP.xz;\n      float t = rr > 1e-4 ? max(dot(dd, Rw.xz) / rr, 0.0) : 0.0;\n      float miss = length(vWP.xz + Rw.xz * t - lamp.xy);\n      float yy = vWP.y + Rw.y * t;\n      float dy = max(max(lamp.z - yy, yy - lamp.w), 0.0);\n      float dist = length(vec2(miss, dy));\n      float w = 0.2 + 0.1 * t;\n      // (and a lit rod is a glow, not a line: the broad lobe, which reaches above and below the rod and to either side of it, so that every rounded corner has some of the light of the lamps round it, with the sharp streak over it)\n      float dyb = max(max(lamp.z - yy, yy - (lamp.w + 1.5)), 0.0);\n      float wb = 1.0 + 0.2 * t;\n      float broad = exp(-(miss * miss + 0.25 * dyb * dyb) / (wb * wb));\n      spec += lc * lvl * (exp(-dist * dist / (w * w)) + 0.3 * broad) / (1.0 + 0.04 * t * t);\n    }\n    float fres = 0.3 + 0.7 * pow(1.0 - max(dot(Nw, Vw), 0.0), 4.0);\n    totalEmissiveRadiance += min(spec, vec3(2.0)) * fres * 0.3 * (1.0 - 0.6 * vOn) * (1.0 - 0.6 * dimE);\n  }")
                 // (the glass's tint is the light of its rod made visible: with the rod off the glass is clear)
-                .replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\n#ifdef USE_TRANSMISSION\n  material.attenuationColor = mix(vec3(1.0), material.attenuationColor, smoothstep(0.12, 0.9, vOn));\n#endif")
+                .replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\n#ifdef USE_TRANSMISSION\n  material.attenuationColor = mix(vec3(1.0), material.attenuationColor, smoothstep(0.12, 0.9, vOn));\n  // (a quiet day's glass does not show the lit ground and the lamps behind it as clearly as a lit one: it is a darker body, not a window onto the glow round it)\n  material.transmission *= 1.0 - " + DIM_SEE.toFixed(2) + " * dimE;" + "\n#endif")
+                .replace("#include <color_fragment>", "#include <color_fragment>\n  // (the glass's own colour is what everything that comes back from it is multiplied by, the light that goes through it and the light that falls on it: a quiet day's is dark, so it neither shows the glow round it nor gives it back, whatever lights it; its edges, which are emissive, still catch the light)\n  float dimE = vDim * (1.0 - smoothstep(1.0, 1.7, vFoc));\n  diffuseColor.rgb *= 1.0 - " + DIM_BODY.toFixed(2) + " * dimE;")
                 .replace("#include <lights_fragment_maps>", "#include <lights_fragment_maps>\n#if defined( RE_IndirectSpecular )\n  radiance *= vLevelEnv;\n#ifdef USE_CLEARCOAT\n  clearcoatRadiance *= vLevelEnv;\n#endif\n#endif\n#if defined( RE_IndirectDiffuse )\n  iblIrradiance *= vLevelEnv;\n#endif");
             };
             mat.customProgramCacheKey = () => "glass-levels";
@@ -1131,20 +1396,38 @@ void main() {
             // (two-sided: three.js draws the BACK faces of a double-sided glass into what the glass in front of it sees, so a block behind another tints it)
             mat.side = LIGHT_DOUBLE_SIDED ? THREE.DoubleSide : THREE.FrontSide;
           }
+          const twin = cutPatch(mat);
           materials.push(mat);
+          if (twin) materials.push(twin);
           const glass = new THREE.Mesh(mergeGeometries(list)!, mat);
           glass.castShadow = true;
           glass.receiveShadow = true;
           group.add(glass);
+          for (const t of cutTwinMeshes(glass, twin, list)) {
+            group.add(t.mesh);
+            glassTwins.push(t);
+          }
           list.forEach((p) => p.dispose());
         }
-        group.userData.dispose = () => materials.forEach((m) => m.dispose());
+        // (the lamps' places and colours are new: upload them)
+        lampTex.needsUpdate = true;
+        // (after every solid glass, which they are depth-tested against)
+        rankTwins(glassTwins, 100, 1);
+        group.userData.dispose = () => {
+          materials.forEach((m) => m.dispose());
+          for (const c of group.children) if (cutTwins.includes(c as import("three").Mesh)) cutTwins.splice(cutTwins.indexOf(c as import("three").Mesh), 1);
+        };
         if (cores.length) {
           const core = new THREE.Mesh(mergeGeometries(cores), dark ? glowMaterial : coreMaterial);
           // (after the opaque things it adds to, the ground's backdrop first: an additive rod drawn before it would be painted over)
           if (dark) core.renderOrder = 10;
           core.castShadow = false;
           group.add(core);
+          if (!dark) {
+            const twins = cutTwinMeshes(core, coreTwin, cores);
+            for (const t of twins) group.add(t.mesh);
+            rankTwins(twins, 6, 1 / (twins.length + 1));
+          }
         }
         [...cores, ...tiles].forEach((p) => p.dispose());
         tileShape?.dispose();
@@ -1155,7 +1438,10 @@ void main() {
 
       const blocks = new THREE.Group();
       scene.add(blocks);
-      const ground0 = () => ((ground.material as import("three").ShadowMaterial).opacity = isDark() ? 0 : 0.05);
+      const ground0 = () => {
+        (ground.material as import("three").ShadowMaterial).opacity = isDark() ? 0 : 0.05;
+        groundFirst(cutTwins.some((t) => t.visible));
+      };
       // (a build in progress: its number, so that a newer one (a theme change, new colours) makes the older stop; and whether one is running, so that no frame is drawn of a scene half built)
       let buildToken = 0;
       let building = false;
@@ -1170,7 +1456,7 @@ void main() {
         // (the lights must not change while the blocks they light are being replaced: the neon and the selection are stopped, `done` starts them again)
         stopNeon();
         window.clearTimeout(focusTimer);
-        window.clearTimeout(focusRaf);
+        focusMoving = false;
         cancelAnimationFrame(raf);
         raf = 0;
         const dark = isDark();
@@ -1215,6 +1501,12 @@ void main() {
             });
             blocks.clear();
             blocks.add(result.value);
+            // (the cutaway's twins are hidden at rest: their programs are made now, in the background where the browser can, and not at the first selection, which would stall on them)
+            if (cutTwins.length) {
+              for (const t of cutTwins) t.visible = true;
+              renderer.compileAsync(scene, camera).catch(() => {});
+              cutShowTwins();
+            }
             building = false;
             done();
           });
@@ -1231,6 +1523,8 @@ void main() {
       // (above the empty tiles, under the glow and contact-shadow layers: the sun's shadows fall on a tile as on the ground)
       ground.position.set(width / 2, 0.06, total / 2);
       ground.receiveShadow = true;
+      // (a ground layer, under the others (see `groundLayer`))
+      groundLayer(ground, 0, 0.5);
       scene.add(ground);
 
       const sun = new THREE.DirectionalLight(0xffffff, 2.2);
@@ -1509,6 +1803,7 @@ void main(){
           // (development only: how long a frame takes, the GPU included: `finish` waits for it)
           renderer.getContext().finish();
           frames.push(performance.now() - f0);
+          el.dataset.frameLast = (performance.now() - f0).toFixed(2);
           el.dataset.frameMs = (frames.reduce((x, y) => x + y, 0) / frames.length).toFixed(1);
         }
         if (n < samplesCap) raf = requestAnimationFrame(frame);
@@ -1572,8 +1867,10 @@ void main(){
       // --- the selected day (dark theme): its blocks glow brighter and the others dim, smoothly, a moment after the pointer has settled on it. It multiplies the neon's levels, so it works with the start-up and the flickers. ---
       const FOCUS_ON = 1.7;
       /** (dark) the least the brightest channel of a selected rod reaches (a rod's own full level is 0.5 for a quiet day to 3 for the busiest), so that a small block selected glows as remarkably as a big one; and the most it is lifted for it. */
-      const FOCUS_MIN_PEAK = 1.7;
-      const FOCUS_MAX_GAIN = 5;
+      const FOCUS_MIN_PEAK = 2.4;
+      /** (dark) the least the luminance of a selected rod reaches, whatever its hue and its layer: a blue one needs a bigger lift than a green one to look as bright. */
+      const FOCUS_MIN_LUM = 1.2;
+      const FOCUS_MAX_GAIN = 14;
       const FOCUS_OFF = 0.34;
       /** The power of the share of lit blocks that dims the backdrop (2: all dimmed to 0.34 leaves about an eighth). */
       const BACKDROP_DIM_POWER = 2;
@@ -1583,7 +1880,6 @@ void main(){
       let effective = new Float32Array(0);
       let lastLevels: ArrayLike<number> = new Float32Array(0);
       let idleLook = false;
-      let focusRaf = 0;
       let focusTimer = 0;
       const applyLevels = (levels: ArrayLike<number>) => {
         // (the blocks the levels are for are being replaced)
@@ -1616,8 +1912,8 @@ void main(){
         if (held < 0) return hum.set(lvl);
         hum.set(lvl, neonBlocks[held]!.pan, neonBlocks[held]!.cell, neonBlocks[held]!.t);
       };
+      /** One step of the focus glow's fade (the levels only: `animTick` draws it); returns whether it is still moving. */
       const stepFocus = () => {
-        focusRaf = 0;
         let moving = false;
         for (let i = 0; i < focus.length; i++) {
           const d = focusTo[i]! - focus[i]!;
@@ -1628,14 +1924,27 @@ void main(){
         }
         applyLevels(lastLevels);
         humLevel();
-        // (each step of the fade is drawn from a few samples at once and shown together, not sample by sample: the first of a restart, alone, is the noisiest picture there is)
+        return moving;
+      };
+      // --- one ticker for the eased changes of the selection, the focus glow and the cutaway: each step moves whichever is moving and draws ONE sample, blended into the picture (`ema`), never more, whatever moves; when both are
+      // done the picture goes on from the samples it has to the full number, as at any other time (no picture drawn from a few samples from nothing, which is noisier than the settled one and made the end of a fade jump) ---
+      let animId = 0;
+      let focusMoving = false;
+      let cutMoving = false;
+      const animTick = () => {
+        animId = 0;
+        if (focusMoving) focusMoving = stepFocus();
+        if (cutMoving) cutMoving = stepCut();
         ema(lite ? 0.45 : 0.3);
-        if (moving) focusRaf = window.setTimeout(stepFocus, 1000 / (lite ? 20 : 30)) as unknown as number;
+        if (focusMoving || cutMoving) animId = window.setTimeout(animTick, 1000 / (lite ? 20 : 30));
         else {
-          // (the fade is over: the picture goes on from the samples it has, up to the full number, it does not start again from one)
           samplesCap = samples;
           if (!raf) raf = requestAnimationFrame(frame);
         }
+      };
+      /** Starts the ticker, now, unless a step is already due (it will take the change). */
+      const animate = () => {
+        if (!animId) animTick();
       };
       // (a debounce: the day is taken a moment after the pointer stops on it, and let go a moment after it leaves)
       const GHOST = 0.12;
@@ -1643,19 +1952,56 @@ void main(){
         window.clearTimeout(focusTimer);
         if (!focusCtl || building) return;
         focusTimer = window.setTimeout(() => {
-          for (let i = 0; i < focusTo.length; i++) focusTo[i] = cell < 0 ? 1 : neonBlocks[i]!.cell === cell ? Math.min(FOCUS_MAX_GAIN, Math.max(FOCUS_ON, FOCUS_MIN_PEAK / Math.max(neonBlocks[i]!.peak, 1e-3))) : ghosts.includes(neonBlocks[i]!.cell) ? GHOST : FOCUS_OFF;
-          window.clearTimeout(focusRaf);
-          stepFocus();
+          for (let i = 0; i < focusTo.length; i++) focusTo[i] = cell < 0 ? 1 : neonBlocks[i]!.cell === cell ? Math.min(FOCUS_MAX_GAIN, Math.max(FOCUS_ON, FOCUS_MIN_PEAK / Math.max(neonBlocks[i]!.peak, 1e-3), FOCUS_MIN_LUM / Math.max(neonBlocks[i]!.lumi, 1e-3))) : ghosts.includes(neonBlocks[i]!.cell) ? GHOST : FOCUS_OFF;
+          focusMoving = true;
+          animate();
         }, cell < 0 ? 140 : 70);
       };
+      // --- the cutaway: the days in the way of the selected one fade out whole, each eased by itself, so a change of selection crosses over on its own (the days no longer in the way come back as the new ones go) ---
+      let cutWanted = new Set<number>();
+      let cutTimer = 0;
+      let cutLast = 0;
+      /** One step of every day's fade (`animTick` draws it); returns whether any is still moving. */
+      const stepCut = () => {
+        const now = performance.now();
+        const dt = neonAllowed() ? Math.min(100, now - cutLast) : 1e6;
+        cutLast = now;
+        const moving = stepFades(cutFade, cutWanted, dt);
+        cutTex.needsUpdate = true;
+        cutShowTwins();
+        return moving;
+      };
+      const cutOn = (cell: number) => {
+        window.clearTimeout(cutTimer);
+        if (!cutCfg || building) return;
+        if (cell < 0 && cutWanted.size === 0 && cutFade.every((v) => v === 0)) return;
+        cutTimer = window.setTimeout(() => {
+          camera.updateMatrixWorld();
+          const v = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 2).normalize();
+          cutWanted = inTheWay(cell, picks, [v.x, v.y, v.z]);
+          // (the first step is taken now: it moves the fades by the time since the last one, `cutLast`)
+          if (!cutMoving) cutLast = performance.now() - 1000 / 30;
+          cutMoving = true;
+          animate();
+        }, cell < 0 ? 120 : 50);
+      };
+      const cutReset = () => {
+        window.clearTimeout(cutTimer);
+        cutMoving = false;
+        cutWanted = new Set();
+        cutFade.fill(0);
+        cutTex.needsUpdate = true;
+        cutShowTwins();
+      };
       const prepareNeon = (skipStartup = false) => {
+        cutReset();
         stopNeon();
         humOk = false;
         hum.stop();
         // (`onLit`: whether the picture is lit, for the page's greeting: not while the start-up runs, always when there is none)
         onLit?.(false);
         window.clearTimeout(focusTimer);
-        window.clearTimeout(focusRaf);
+        focusMoving = false;
         focusCtl = isDark() && stampCtl && neonBlocks.length > 0 && neonBlocks.length <= MAX_LEVELS ? stampCtl : null;
         focus = new Float32Array(neonBlocks.length).fill(1);
         focusTo = new Float32Array(neonBlocks.length).fill(1);
@@ -1811,10 +2157,11 @@ void main(){
       let stack: number[] = [];
       let stackAt = { x: 0, y: 0 };
       let cycling = false;
-      const announce = (cell: number, behind?: { index: number; count: number }) => {
+      const announce = (cell: number, behind?: { index: number; count: number }, source: HoverInfo["source"] = "pointer") => {
         current = cell;
         // (the days in front of the one looked at are ghosts: it is seen through them)
         focusOn(cell, behind ? stack.slice(0, behind.index) : []);
+        cutOn(cell);
         if (cell < 0 || !onHover) return onHover?.(null);
         const g = cells[cell]!;
         const { x, z } = at(g.week, g.day);
@@ -1836,7 +2183,7 @@ void main(){
           }
         }
         const c = toCss(new THREE.Vector3(x, top, z));
-        onHover({ index: cell, date: g.date, top: g.value, bottom: layout.bottom.cells[cell]?.value ?? 0, outline: resample(hull(corners), 64).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), x: c.x, y: c.y, behind });
+        onHover({ theme: isDark() ? "dark" : "light", index: cell, date: g.date, top: g.value, bottom: layout.bottom.cells[cell]?.value ?? 0, source, outline: resample(hull(corners), 64).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), x: c.x, y: c.y, behind });
       };
       const onMove = (e: PointerEvent) => {
         if (e.pointerType === "touch" || settling) return;
@@ -1851,7 +2198,7 @@ void main(){
         if (cell !== current) {
           stack = here;
           stackAt = { x: e.clientX, y: e.clientY };
-          announce(cell, here.length > 1 ? { index: 0, count: here.length } : undefined);
+          announce(cell, here.length > 1 ? { index: 0, count: here.length } : undefined, "pointer");
         }
       };
       const onLeave = () => {
@@ -1872,13 +2219,13 @@ void main(){
           const next = (Math.max(0, stack.indexOf(current)) + 1) % stack.length;
           cycling = true;
           pinned = true;
-          announce(stack[next]!, { index: next, count: stack.length });
+          announce(stack[next]!, { index: next, count: stack.length }, "pointer");
           return;
         }
         // (a tap pins a day; a tap on the same spot goes to the next one behind it, and after the last lets go; a tap elsewhere pins that spot's nearest)
         if (pinned && sameSpot && current >= 0) {
           const next = stack.indexOf(current) + 1;
-          if (next < stack.length) return announce(stack[next]!, { index: next, count: stack.length });
+          if (next < stack.length) return announce(stack[next]!, { index: next, count: stack.length }, "touch");
           pinned = false;
           return announce(-1);
         }
@@ -1886,30 +2233,44 @@ void main(){
         stack = here;
         stackAt = { x: e.clientX, y: e.clientY };
         pinned = cell !== -1 && cell !== current;
-        announce(pinned ? cell : -1, pinned && here.length > 1 ? { index: 0, count: here.length } : undefined);
+        announce(pinned ? cell : -1, pinned && here.length > 1 ? { index: 0, count: here.length } : undefined, "touch");
       };
-      // (the keys: the arrows walk the days, Escape lets go)
+      // (the keys: the arrows walk the days (a week left and right, a day up and down), Home and End go to the first and the last, PageUp and PageDown a month (4 weeks) back and forward, Escape lets go; any other key, Tab included, is left alone)
       const onKey = (e: KeyboardEvent) => {
-        const last = cells.length - 1;
-        let next = current;
+        if (e.altKey || e.ctrlKey || e.metaKey) return;
         if (e.key === "Escape") {
+          if (current < 0) return;
           pinned = false;
           return announce(-1);
         }
-        const step = { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 }[e.key];
-        if (step === undefined) return;
+        const next = dayAfterKey(e.key, current, cells.length);
+        if (next === null) return;
         e.preventDefault();
-        next = current < 0 ? last : Math.min(last, Math.max(0, current + step));
         pinned = true;
-        announce(next);
+        // (the days stacked under the pointer are not the keyboard's business)
+        stack = [];
+        cycling = false;
+        announce(next, undefined, "key");
       };
-      // (not in the tab order: a focus ring round the whole picture is ugly; a click still focuses it, so the arrow keys walk the days after one)
-      el.tabIndex = -1;
+      // Focusable, so that a keyboard can reach the days: Tab lands on the picture and the latest day is selected (when the focus comes from the keyboard: a click does not select anything). The focus ring is the browser's (`:focus-visible` on the container): restyle it with CSS,
+      // or draw your own from `onHover` (`source: "key"`). Leaving lets the day go.
+      el.tabIndex = 0;
+      const onFocus = () => {
+        if (current >= 0 || !el.matches(":focus-visible")) return;
+        pinned = true;
+        announce(cells.length - 1, undefined, "key");
+      };
+      const onBlur = () => {
+        pinned = false;
+        cycling = false;
+        if (current !== -1) announce(-1);
+      };
       dom.addEventListener("pointermove", onMove);
       dom.addEventListener("pointerleave", onLeave);
       dom.addEventListener("pointerdown", onDown);
       el.addEventListener("keydown", onKey);
-      el.addEventListener("blur", onLeave);
+      el.addEventListener("focus", onFocus);
+      el.addEventListener("blur", onBlur);
       // (the first size is taken at once; the next ones wait for the resizing to pause: the old picture is softened meanwhile)
       let first = true;
       let resizeTimer = 0;
@@ -1966,14 +2327,17 @@ void main(){
         stopNeon();
         hum.stop();
         window.clearTimeout(focusTimer);
-        window.clearTimeout(focusRaf);
+        window.clearTimeout(animId);
+        animId = 0;
+        window.clearTimeout(cutTimer);
         cancelAnimationFrame(raf);
         window.clearTimeout(resizeTimer);
         dom.removeEventListener("pointermove", onMove);
         dom.removeEventListener("pointerleave", onLeave);
         dom.removeEventListener("pointerdown", onDown);
         el.removeEventListener("keydown", onKey);
-        el.removeEventListener("blur", onLeave);
+        el.removeEventListener("focus", onFocus);
+        el.removeEventListener("blur", onBlur);
         onHover?.(null);
         ro.disconnect();
         mq.removeEventListener("change", onScheme);
@@ -1985,8 +2349,11 @@ void main(){
         boxes.forEach((g) => g.dispose());
         blockMaterial.dispose();
         coreMaterial.dispose();
+        coreTwin?.dispose();
         glowMaterial.dispose();
         levelTex.dispose();
+        lampTex.dispose();
+        cutTex.dispose();
         viewObserver?.disconnect();
         templates?.texture.dispose();
         tileUnlit.dispose();

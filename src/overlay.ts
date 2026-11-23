@@ -4,11 +4,18 @@ import type { HoverInfo } from "./types";
 export interface OverlayOptions {
   /** Draw the outline of the day's blocks (default true). */
   outline?: boolean;
+  /**
+   * What colour the outline is: `"auto"` (default) is the text colour in the dark theme and, in the light one (where the blocks can be dark and saturated and a dark line is lost on them), a white line on a thin near-black casing; `"cased"` is that casing in both themes;
+   * `"text"` is the text colour (`currentColor`) alone. `--nag-outline` and `--nag-outline-halo` (the casing, `transparent` for none) override any of them.
+   */
+  outlineColor?: "auto" | "cased" | "text";
   /** The day card: `true` for the default one, `false` for none, or a function that returns its content (text or a node). */
   card?: boolean | ((info: HoverInfo) => string | Node);
   /** Locale of the default card's date. */
   locale?: string;
 }
+
+let overlays = 0;
 
 export interface HoverOverlay {
   update(info: HoverInfo | null): void;
@@ -17,11 +24,11 @@ export interface HoverOverlay {
 
 /**
  * The day under the pointer: an outline round its blocks (an SVG path over the picture) and a card hung on its column, both inside `container`, styled through CSS variables (set them on the container or above it):
- * `--nag-outline` (stroke, default the text colour), `--nag-outline-fill`, `--nag-card-bg`, `--nag-card-fg`, `--nag-card-muted`, `--nag-top` and `--nag-bottom` (the two layers' colours in the card), `--nag-card-radius`.
+ * `--nag-outline` (stroke, see `outlineColor`), `--nag-outline-halo` (its casing), `--nag-outline-fill`, `--nag-card-bg`, `--nag-card-fg`, `--nag-card-muted`, `--nag-top` and `--nag-bottom` (the two layers' colours in the card), `--nag-card-radius`.
  * `labels` names the two layers in the default card. Days behind one another (the pointer is on several) show "2 of 3, click for next".
  */
 export function createHoverOverlay(container: HTMLElement, options: OverlayOptions = {}, labels: () => { top?: { label?: string; unit?: string }; bottom?: { label?: string; unit?: string } } = () => ({})): HoverOverlay {
-  const { outline = true, card = true, locale } = options;
+  const { outline = true, card = true, locale, outlineColor = "auto" } = options;
   if (getComputedStyle(container).position === "static") container.style.position = "relative";
   const root = document.createElement("div");
   root.className = "nag-overlay";
@@ -30,7 +37,8 @@ export function createHoverOverlay(container: HTMLElement, options: OverlayOptio
   root.innerHTML = `<style>
 .nag-overlay{--nag-top-default:#0a8f2c;--nag-bottom-default:#1a6fe0}
 @media (prefers-color-scheme:dark){.nag-overlay{--nag-top-default:#3ddc6a;--nag-bottom-default:#5aa9ff}}
-.nag-outline{fill:var(--nag-outline-fill,color-mix(in srgb,currentColor 7%,transparent));stroke:var(--nag-outline,currentColor);stroke-width:1.5;stroke-linejoin:round}
+.nag-halo{fill:none;stroke:var(--nag-outline-halo,var(--nag-halo-auto,transparent));stroke-width:var(--nag-halo-width,8);stroke-linejoin:round;opacity:var(--nag-halo-opacity,.5);filter:blur(var(--nag-halo-blur,3px))}
+.nag-outline{fill:var(--nag-outline-fill,color-mix(in srgb,currentColor 7%,transparent));stroke:var(--nag-outline,var(--nag-auto,currentColor));stroke-width:1.5;stroke-linejoin:round}
 .nag-card{position:absolute;left:0;top:0;padding:10px 14px;min-width:9.5em;border-radius:var(--nag-card-radius,12px);color:var(--nag-card-fg,inherit);font:13px/1.35 system-ui,sans-serif;white-space:nowrap;background:var(--nag-card-bg,color-mix(in srgb,Canvas 70%,transparent));-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 11%,transparent),0 14px 44px -12px rgb(0 0 0/.38),0 2px 10px -4px rgb(0 0 0/.22);transition:opacity .16s,transform .3s cubic-bezier(.2,.7,.2,1)}
 .nag-card .nag-day{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--nag-card-muted,color-mix(in srgb,currentColor 60%,transparent))}
 .nag-card .nag-figs{display:flex;gap:22px;margin-top:8px}
@@ -45,7 +53,22 @@ export function createHoverOverlay(container: HTMLElement, options: OverlayOptio
   svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;overflow:visible;opacity:0;transition:opacity .12s";
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
   path.setAttribute("class", "nag-outline");
-  svg.append(path);
+  // (the casing: a thin line of the opposite lightness under the outline)
+  const halo = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  halo.setAttribute("class", "nag-halo");
+  // (the casing is a soft dip in the picture's brightness round the line, outside the outline only: a mask hides it inside)
+  const maskId = `nag-out-${++overlays}`;
+  const mask = document.createElementNS("http://www.w3.org/2000/svg", "mask");
+  mask.setAttribute("id", maskId);
+  mask.setAttribute("maskUnits", "userSpaceOnUse");
+  for (const [k, v] of Object.entries({ x: -2000, y: -2000, width: 6000, height: 6000 })) mask.setAttribute(k, String(v));
+  const everywhere = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  for (const [k, v] of Object.entries({ x: -2000, y: -2000, width: 6000, height: 6000, fill: "#fff" })) everywhere.setAttribute(k, String(v));
+  const inside = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  inside.setAttribute("fill", "#000");
+  mask.append(everywhere, inside);
+  halo.setAttribute("mask", `url(#${maskId})`);
+  svg.append(mask, halo, path);
   if (outline) root.append(svg);
   const cardEl = document.createElement("div");
   cardEl.className = "nag-card";
@@ -77,6 +100,12 @@ export function createHoverOverlay(container: HTMLElement, options: OverlayOptio
         return;
       }
       path.setAttribute("d", outlinePath(info.outline));
+      halo.setAttribute("d", path.getAttribute("d")!);
+      inside.setAttribute("d", path.getAttribute("d")!);
+      // (a white line on a near-black casing reads on dark, saturated glass and on the pale ground alike)
+      const cased = outlineColor === "cased" || (outlineColor === "auto" && info.theme === "light");
+      svg.style.setProperty("--nag-auto", cased ? "#fff" : "currentColor");
+      svg.style.setProperty("--nag-halo-auto", cased ? "#111114" : "transparent");
       svg.style.opacity = "1";
       if (card) {
         fill(info);
@@ -88,7 +117,8 @@ export function createHoverOverlay(container: HTMLElement, options: OverlayOptio
         if (!seen) requestAnimationFrame(() => (cardEl.style.transition = ""));
         seen = true;
       }
-      live.textContent = `${formatDay(info.date, locale)}: ${formatValue(info.top)} and ${formatValue(info.bottom)}`;
+      // (read out for the keyboard and for taps, not for every day a mouse sweeps over)
+      live.textContent = info.source === "pointer" ? "" : `${formatDay(info.date, locale)}: ${formatValue(info.top)} and ${formatValue(info.bottom)}`;
     },
     destroy() {
       root.remove();

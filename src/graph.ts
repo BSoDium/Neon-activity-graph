@@ -762,16 +762,49 @@ void main() {
           // very texture the glow is drawn from, which hover and the start-up update in place: the glass sees the live light, the picture itself is unchanged.
           const uBackdrop = { value: 0 };
           const proxyMat = new THREE.MeshBasicMaterial({ map: ground.texture, toneMapped: false });
+          // (each block of glass dims the ground's light a little: the light the glass shows is dimmed by how much glass lies between the ground and the camera, along the view ray, found from a map of the columns' heights (a few fetches a pixel, only in what the glass sees))
+          const cols = Math.max(...picks.map((q) => Math.round(q.x)), 0) + 1;
+          const rows = Math.max(...picks.map((q) => Math.round(q.z)), 0) + 1;
+          const heights = new Float32Array(cols * rows);
+          for (const q of picks) if (!q.pit) heights[Math.round(q.z) * cols + Math.round(q.x)] = Math.max(heights[Math.round(q.z) * cols + Math.round(q.x)]!, q.y1);
+          const heightTex = new THREE.DataTexture(heights, cols, rows, THREE.RedFormat, THREE.FloatType);
+          heightTex.needsUpdate = true;
+          const absorb = Math.max(0, dbg.glassAbsorb ?? 0);
+          const maxH = tallest;
+          const pw = cw / PX;
+          const ph = ch / PX;
           proxyMat.onBeforeCompile = (shader) => {
             shader.uniforms.uBackdrop = uBackdrop;
             shader.uniforms.uPage = { value: page };
             shader.uniforms.uDim = backdropDim;
+            shader.uniforms.uGlassH = { value: heightTex };
             shader.fragmentShader = shader.fragmentShader
-              .replace("#include <common>", "#include <common>\nuniform float uBackdrop;\nuniform float uDim;\nuniform vec3 uPage;")
+              .replace("#include <common>", "#include <common>\nuniform float uBackdrop;\nuniform float uDim;\nuniform vec3 uPage;\nuniform highp sampler2D uGlassH;")
               .replace("void main() {", softSeen + "\nvoid main() {\n  if (uBackdrop < 0.5) discard;")
-              .replace("#include <opaque_fragment>", `outgoingLight = uPage + uDim * softSeen(outgoingLight);\n#include <opaque_fragment>`);
+              .replace(
+                "#include <opaque_fragment>",
+                `float seen = 1.0;
+#if ${absorb > 0 ? 1 : 0}
+  vec3 P = vec3((vMapUv.x - 0.5) * ${pw.toFixed(3)} + ${(width / 2).toFixed(3)}, 0.0, ${(total / 2).toFixed(3)} - (vMapUv.y - 0.5) * ${ph.toFixed(3)});
+  vec3 toCam = normalize(vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]));
+  if (toCam.y > 0.05) {
+    float len = 0.0;
+    float stepY = ${maxH.toFixed(3)} / 8.0;
+    for (int i = 0; i < 8; i++) {
+      float y = (float(i) + 0.5) * stepY;
+      vec3 q = P + toCam * (y / toCam.y);
+      vec2 c = floor(q.xz + 0.5);
+      vec2 f = abs(q.xz - c);
+      if (c.x >= 0.0 && c.y >= 0.0 && c.x < ${cols.toFixed(1)} && c.y < ${rows.toFixed(1)} && max(f.x, f.y) < 0.46 && y < texelFetch(uGlassH, ivec2(c), 0).r) len += stepY / toCam.y;
+    }
+    seen = exp(-${absorb.toFixed(3)} * len);
+  }
+#endif
+outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
+#include <opaque_fragment>`,
+              );
           };
-          proxyMat.customProgramCacheKey = () => "ground-backdrop-dark";
+          proxyMat.customProgramCacheKey = () => "ground-backdrop-dark|" + absorb.toFixed(3) + "|" + cols + "x" + rows + "|" + maxH.toFixed(2);
           const proxy = new THREE.Mesh(new THREE.PlaneGeometry(cw / PX, ch / PX), proxyMat);
           proxy.rotation.x = -Math.PI / 2;
           proxy.position.set(width / 2, 0.01, total / 2);
@@ -782,6 +815,7 @@ void main() {
           layers.add(proxy);
           disposers.push(() => {
             proxyMat.dispose();
+            heightTex.dispose();
             proxy.geometry.dispose();
           });
         }

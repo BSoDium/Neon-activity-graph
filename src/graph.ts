@@ -240,21 +240,21 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       };
       if (dbg.hide) renderer.localClippingEnabled = true;
       /**
-       * (dark) The dynamic range of the light on the ground (development: `debug.groundContrast`, 1 is as baked): the brightest light on the ground, the glow of a rod at its brightest, is left as it is, and what is dimmer is
-       * dimmed in proportion: a glow at a share `r` of that peak is multiplied by `r` to the power `contrast - 1`, so a quiet rod lights the ground much less and a busy one the same. The hue is kept. The glass sees the same curve
-       * (it looks at the ground through the same texture). `GROUND_PEAK` is what the glow of the brightest rods reaches in the texture (linear, measured: 0.0059 to 0.0069 at the very top, 0.0045 for the 99.9th percentile).
+       * (dark) The dynamic range of the light on the ground (development: `debug.groundFalloff`, 0 is as baked). The glow at or above `GROUND_KNEE` (a bright rod's, up there in the texture) is left exactly as it is; below it, the glow is multiplied
+       * by an exponential ramp of how far it is from the knee, `(e^(a r) - 1) / (e^a - 1)` with `r` its share of the knee: 1 at the knee, falling faster the larger `a` is (a = 4: a half of the knee's light is cut to 12 %, a quarter to 3 %).
+       * The hue is kept. The glass sees the same curve (it looks at the ground through the same texture). Measured in the texture (linear) on three datasets: the very brightest glow is 0.006 to 0.007, the 99th percentile 0.0035, the 95th 0.0025.
        */
-      const GROUND_PEAK = 0.0045;
+      const GROUND_KNEE = 0.003;
       const groundCurve = (mat: import("three").MeshBasicMaterial) => {
-        const g = dbg.groundContrast ?? 1;
-        if (g === 1) return;
+        const g = dbg.groundFalloff ?? 0;
+        if (g <= 0) return;
         const prev = mat.onBeforeCompile;
         const base = mat.customProgramCacheKey();
         mat.onBeforeCompile = (shader, r) => {
           prev.call(mat, shader, r);
-          shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>\n  { float gm = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b)); if (gm > 1e-7 && gm < ${GROUND_PEAK.toExponential(4)}) diffuseColor.rgb *= pow(gm / ${GROUND_PEAK.toExponential(4)}, ${(g - 1).toFixed(3)}); }`);
+          shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>\n  { float gm = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b)); if (gm > 1e-7 && gm < ${GROUND_KNEE.toExponential(4)}) { float gr = gm / ${GROUND_KNEE.toExponential(4)}; diffuseColor.rgb *= (exp(${g.toFixed(3)} * gr) - 1.0) / (exp(${g.toFixed(3)}) - 1.0); } }`);
         };
-        mat.customProgramCacheKey = () => `${base}|gc${g.toFixed(3)}`;
+        mat.customProgramCacheKey = () => `${base}|gf${g.toFixed(3)}`;
       };
       const cutCfg = resolveCutaway(opts.cutaway);
       const cutCells = Math.max(1, layout.top.cells.length);

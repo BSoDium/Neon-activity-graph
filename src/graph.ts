@@ -1797,8 +1797,8 @@ void main(){
       // --- the selected day (dark theme): its blocks glow brighter and the others dim, smoothly, a moment after the pointer has settled on it. It multiplies the neon's levels, so it works with the start-up and the flickers. ---
       const FOCUS_ON = 1.7;
       /** (dark) the least the brightest channel of a selected rod reaches (a rod's own full level is 0.5 for a quiet day to 3 for the busiest), so that a small block selected glows as remarkably as a big one; and the most it is lifted for it. */
-      const FOCUS_MIN_PEAK = 1.7;
-      const FOCUS_MAX_GAIN = 5;
+      const FOCUS_MIN_PEAK = 2.4;
+      const FOCUS_MAX_GAIN = 14;
       const FOCUS_OFF = 0.34;
       /** The power of the share of lit blocks that dims the backdrop (2: all dimmed to 0.34 leaves about an eighth). */
       const BACKDROP_DIM_POWER = 2;

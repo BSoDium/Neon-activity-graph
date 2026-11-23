@@ -3,7 +3,7 @@ import { createGroundLight, loadCausticTemplates, type CausticTemplates, type Gl
 import { clampTone, sameColor } from "./color";
 import { layoutGraph, type Matrix } from "./layout";
 import { createNeon } from "./neon";
-import { CUTAWAY_REF_PX_PER_UNIT, CUT_DECLS_FRAGMENT, CUT_DECLS_VERTEX, CUT_VERTEX, cutFragment, cutSeed, easeStep, resolveCutaway, selectSlot, type CutSlot } from "./cutaway";
+import { CUT_DECLS_FRAGMENT, CUT_DECLS_VERTEX, CUT_FRAGMENT, CUT_VERTEX, cutSeed, inTheWay, resolveCutaway, stepFades } from "./cutaway";
 import { renderSize } from "./size";
 import { createHoverHum } from "./hover-hum";
 import { dayAfterKey } from "./keys";
@@ -230,12 +230,14 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const LIGHT_BEHIND_TINT = 0.85;
       // --- the cutaway: what is in front of the selected rod is dropped, per fragment, in a soft circle round it (see `cutaway.ts`); the uniforms are shared by every block material ---
       const cutCfg = resolveCutaway(opts.cutaway);
+      const cutCells = Math.max(1, layout.top.cells.length);
+      // (one number a day, 0 to 1: how far the day is faded away; eased on the CPU, read by the blocks' shaders)
+      const cutFade = new Float32Array(cutCells);
+      const cutTex = new THREE.DataTexture(cutFade, cutCells, 1, THREE.RedFormat, THREE.FloatType);
+      cutTex.needsUpdate = true;
       const cutU = {
-        uCutSlot: { value: [new THREE.Vector4(), new THREE.Vector4()] },
-        uCutNdc: { value: [new THREE.Vector2(), new THREE.Vector2()] },
-        uCutView: { value: new THREE.Vector3() },
-        uCutSize: { value: new THREE.Vector2(1, 1) },
-        uCutRadius: { value: 0 },
+        uCutFade: { value: cutTex },
+        uCutStrength: { value: cutCfg?.strength ?? 0 },
         uCutSeed: { value: 0 },
       };
       const cutPatch = (mat: import("three").Material) => {
@@ -245,8 +247,8 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         mat.onBeforeCompile = (shader, r) => {
           prev.call(mat, shader, r);
           Object.assign(shader.uniforms, cutU);
-          shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_VERTEX).replace("#include <project_vertex>", "#include <project_vertex>\n" + CUT_VERTEX);
-          shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_FRAGMENT).replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\n" + cutFragment());
+          shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_VERTEX).replace("#include <begin_vertex>", "#include <begin_vertex>\n" + CUT_VERTEX);
+          shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_FRAGMENT).replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\n" + CUT_FRAGMENT);
         };
         mat.customProgramCacheKey = () => base + "|cut";
       };
@@ -819,7 +821,7 @@ void main() {
         const cores: BufferGeometry[] = [];
         const tiles: BufferGeometry[] = [];
         // the layers are first only noted (where, how tall, how busy, which colour), so that each can be lit by the others before its geometry is made
-        interface Spec { src: "bottom" | "top"; x: number; z: number; y0: number; h: number; t: number; hue: Color; cust: boolean }
+        interface Spec { cell: number; src: "bottom" | "top"; x: number; z: number; y0: number; h: number; t: number; hue: Color; cust: boolean }
         const specs: Spec[] = [];
         // (a quiet day still has a faint light at its heart, an old bulb struggling: the floor of the emission)
         // (the lift is for the quietest days only: it fades out well before a busy one)
@@ -828,7 +830,7 @@ void main() {
           const h = 0.18 + t * LAYER_MAX;
           picks.push({ cell, x, z, y0, y1: y0 + h });
           const cust = customOf(cell, src, t);
-          specs.push({ src, x, z, y0, h, t, hue: cust ?? low.clone().lerp(high, t), cust: !!cust });
+          specs.push({ cell, src, x, z, y0, h, t, hue: cust ?? low.clone().lerp(high, t), cust: !!cust });
           tallest = Math.max(tallest, y0 + h);
           return y0 + h;
         };
@@ -974,6 +976,7 @@ void main() {
           shell.translate(x, y0 + h / 2, z);
           // dark: the glass is nearly clear (the light of its core shows through it); light: tinted by the level
           paint(shell, (dark ? new THREE.Color(0xffffff) : hue.clone().lerp(new THREE.Color(0xffffff), LIGHT_SHELL_WHITE).multiply(behindTint.get(sp) ?? new THREE.Color(1, 1, 1))).add(inc.clone().multiplyScalar(dark && sp.cust ? 0.35 : 0.08)), 0, dark);
+          shell.setAttribute("aCell", new THREE.BufferAttribute(new Float32Array(shell.getAttribute("position").count).fill(sp.cell), 1));
           shell.setAttribute("aBlock", new THREE.BufferAttribute(new Float32Array(shell.getAttribute("position").count).fill(blockIndex), 1));
           // (the light of the neighbours, for the glass to glow with: see `NEIGHBOUR_GLOW`; only where there are lamps BEHIND the glass as the camera sees it, and none against a dark background, or the glass would look opaque and washed out)
           const nbShare = glowOf.get(sp) ?? 0;
@@ -1011,6 +1014,7 @@ void main() {
             if (dark) for (let q = 0; q < count; q++) inc.toArray(incs, q * 3);
             core.setAttribute("aInc", new THREE.BufferAttribute(incs, 3));
           }
+          core.setAttribute("aCell", new THREE.BufferAttribute(new Float32Array(core.getAttribute("position").count).fill(sp.cell), 1));
           core.setAttribute("aBlock", new THREE.BufferAttribute(new Float32Array(core.getAttribute("position").count).fill(blockIndex++), 1));
           // (where the rod stands, across: a dim rod is drawn thinner about it)
           core.setAttribute("aCtr", new THREE.BufferAttribute(repeat(core.getAttribute("position").count, x, z), 2));
@@ -1676,41 +1680,18 @@ void main(){
           stepFocus();
         }, cell < 0 ? 140 : 70);
       };
-      // --- the cutaway's slots: two, so that a change of selection crosses over (the old circle fades out as the new one fades in) ---
-      let cutSlots: [CutSlot, CutSlot] = [{ cell: -1, amount: 0, target: 0 }, { cell: -1, amount: 0, target: 0 }];
+      // --- the cutaway: the days in the way of the selected one fade out whole, each eased by itself, so a change of selection crosses over on its own (the days no longer in the way come back as the new ones go) ---
+      let cutWanted = new Set<number>();
       let cutTimer = 0;
       let cutLoopId = 0;
       let cutLast = 0;
-      const cutPush = () => {
-        cutSlots.forEach((s, k) => cutU.uCutSlot.value[k]!.w = s.amount * (cutCfg?.strength ?? 0));
-        camera.updateMatrixWorld();
-        const pxPerUnit = el.clientHeight / Math.max(1e-6, camera.top - camera.bottom);
-        cutU.uCutRadius.value = (cutCfg?.radius ?? 0) * (pxPerUnit / CUTAWAY_REF_PX_PER_UNIT);
-        cutU.uCutSize.value.set(el.clientWidth, el.clientHeight);
-        cutU.uCutView.value.setFromMatrixColumn(camera.matrixWorld, 2).normalize();
-      };
-      const cutPlace = (k: number, cell: number) => {
-        const g = cells[cell]!;
-        const { x, z } = at(g.week, g.day);
-        const p = new THREE.Vector3(x, topOf(cell) / 2, z);
-        camera.updateMatrixWorld();
-        const v = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 2).normalize();
-        const ndc = p.clone().project(camera);
-        cutU.uCutSlot.value[k]!.set(x, z, p.dot(v), 0);
-        cutU.uCutNdc.value[k]!.set(ndc.x, ndc.y);
-      };
       const cutLoop = () => {
         cutLoopId = 0;
         const now = performance.now();
-        const dt = Math.min(100, now - cutLast);
+        const dt = neonAllowed() ? Math.min(100, now - cutLast) : 1e6;
         cutLast = now;
-        let moving = false;
-        const reduced = !neonAllowed();
-        cutSlots.forEach((s) => {
-          s.amount = reduced ? s.target : easeStep(s.amount, s.target, dt);
-          if (s.amount !== s.target) moving = true;
-        });
-        cutPush();
+        const moving = stepFades(cutFade, cutWanted, dt);
+        cutTex.needsUpdate = true;
         // (each step is drawn from a few samples at once, from nothing: the thresholds of the fade are spread over the samples, so a lone one is a dither)
         const k = lite ? 2 : 4;
         cancelAnimationFrame(raf);
@@ -1729,13 +1710,11 @@ void main(){
       const cutOn = (cell: number) => {
         window.clearTimeout(cutTimer);
         if (!cutCfg || building) return;
-        if (cell < 0 && cutSlots.every((s) => s.amount === 0 && s.target === 0)) return;
+        if (cell < 0 && cutWanted.size === 0 && cutFade.every((v) => v === 0)) return;
         cutTimer = window.setTimeout(() => {
-          const before = cutSlots;
-          cutSlots = selectSlot(cutSlots, cell);
-          cutSlots.forEach((s, k) => {
-            if (s.target > 0 && s.cell !== before[k]!.cell) cutPlace(k, s.cell);
-          });
+          camera.updateMatrixWorld();
+          const v = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 2).normalize();
+          cutWanted = inTheWay(cell, picks, [v.x, v.y, v.z]);
           cutLast = performance.now();
           window.clearTimeout(cutLoopId);
           cutLoop();
@@ -1745,8 +1724,9 @@ void main(){
         window.clearTimeout(cutTimer);
         window.clearTimeout(cutLoopId);
         cutLoopId = 0;
-        cutSlots = [{ cell: -1, amount: 0, target: 0 }, { cell: -1, amount: 0, target: 0 }];
-        cutPush();
+        cutWanted = new Set();
+        cutFade.fill(0);
+        cutTex.needsUpdate = true;
       };
       const prepareNeon = (skipStartup = false) => {
         cutReset();
@@ -2106,6 +2086,7 @@ void main(){
         coreMaterial.dispose();
         glowMaterial.dispose();
         levelTex.dispose();
+        cutTex.dispose();
         viewObserver?.disconnect();
         templates?.texture.dispose();
         tileUnlit.dispose();

@@ -1,49 +1,88 @@
 /**
- * The cutaway: what stands in front of the selected rod fades away in a soft circle round it, so the rod can be seen. Pure maths (the shaders replicate `cutFade`, built from the same constants), kept apart so that it can be tested.
+ * The cutaway: the days that stand in the way of the selected one (they hide it from the camera) fade away, whole, so the selected day can be seen. Pure maths (the picking of the days in the way, the easing), kept apart so that it
+ * can be tested; the shader side is a few lines of GLSL at the bottom.
  */
 
 export interface CutawayOptions {
-  /** The radius of the clear circle, in CSS pixels at a reference zoom where a day (one grid unit) is 16 px wide: it grows and shrinks with the picture (default 90, about 5.5 days). */
-  radius?: number;
-  /** How much of what is in front is taken away at the centre of the circle, 0 to 1 (default 0.92: a ghost of it stays, so that the picture keeps its depth). */
+  /** How much of the days in the way is taken away, 0 to 1 (default 1: they are gone; less leaves a ghost of them, so that the picture keeps its depth). */
   strength?: number;
 }
 
-export const CUTAWAY_DEFAULTS = { radius: 90, strength: 0.92 } as const;
-/** How many pixels of a day's width the `radius` is given for. */
-export const CUTAWAY_REF_PX_PER_UNIT = 16;
-/** The part of the radius over which the circle goes from clear to untouched (the falloff is a smoothstep from the centre's plateau to the edge). */
-export const CUTAWAY_PLATEAU = 0.35;
-/** A thing is "in front" of the rod when it is nearer the camera than the rod's middle by more than `FRONT_FROM` grid units, wholly so from `FRONT_TO` on (smoothstep between: a neighbour at the same depth is left alone). */
-export const FRONT_FROM = 0.05;
-export const FRONT_TO = 0.6;
+export const CUTAWAY_DEFAULTS = { strength: 1 } as const;
 /** Eased with this time constant, in ms. */
 export const CUTAWAY_TAU_MS = 90;
-
-export const smoothstep = (a: number, b: number, x: number): number => {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-};
+/** The half-width of a day's block, and how far the rays that look for what is in the way are drawn in from the selected day's edge (a neighbour that only brushes its silhouette is not in the way). */
+export const BLOCK_HALF = 0.46;
+export const SAMPLE_INSET = 0.22;
 
 /** Resolves user options: `false` is off, `undefined`/`true` the defaults. */
-export function resolveCutaway(o: CutawayOptions | boolean | undefined): { radius: number; strength: number } | null {
+export function resolveCutaway(o: CutawayOptions | boolean | undefined): { strength: number } | null {
   if (o === false) return null;
   const c = typeof o === "object" ? o : {};
   const strength = Math.min(1, Math.max(0, c.strength ?? CUTAWAY_DEFAULTS.strength));
-  const radius = Math.max(0, c.radius ?? CUTAWAY_DEFAULTS.radius);
-  return strength > 0 && radius > 0 ? { radius, strength } : null;
+  return strength > 0 ? { strength } : null;
+}
+
+export interface Box {
+  cell: number;
+  x: number;
+  z: number;
+  y0: number;
+  y1: number;
+  pit?: boolean;
+}
+
+/** Whether the ray from `o` along `d` (not both zero) hits the day's box ahead of the origin (the slab method). */
+export function rayHitsBox(o: readonly [number, number, number], d: readonly [number, number, number], b: Box): boolean {
+  let t0 = 0;
+  let t1 = Infinity;
+  const slabs = [[o[0], d[0], b.x - BLOCK_HALF, b.x + BLOCK_HALF], [o[1], d[1], b.y0, b.y1], [o[2], d[2], b.z - BLOCK_HALF, b.z + BLOCK_HALF]] as const;
+  for (const [oo, dd, lo, hi] of slabs) {
+    if (Math.abs(dd) < 1e-9) {
+      if (oo < lo || oo > hi) return false;
+      continue;
+    }
+    const a = (lo - oo) / dd;
+    const c = (hi - oo) / dd;
+    t0 = Math.max(t0, Math.min(a, c));
+    t1 = Math.min(t1, Math.max(a, c));
+  }
+  return t0 <= t1;
+}
+
+/** The points of the selected day that must be seen: its blocks' centres, tops and bottoms, and (drawn in a little) their corners. */
+export function samplePoints(boxes: readonly Box[]): [number, number, number][] {
+  const pts: [number, number, number][] = [];
+  const k = BLOCK_HALF - SAMPLE_INSET;
+  for (const b of boxes) {
+    if (b.pit) continue;
+    const h = b.y1 - b.y0;
+    for (const y of [b.y0 + Math.min(0.08, h / 3), (b.y0 + b.y1) / 2, b.y1 - Math.min(0.08, h / 3)]) {
+      pts.push([b.x, y, b.z]);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) pts.push([b.x + sx * k, y, b.z + sz * k]);
+    }
+  }
+  return pts;
 }
 
 /**
- * How much in front of the selected rod a point is, 0 (not at all) to 1: `depth` is the point's distance toward the camera along the view direction, `rodDepth` the rod's, in grid units.
+ * The days that are in the way of `cell`: those with a block that one of its points would hit looking toward the camera (`toCamera`, a direction, from the scene to the camera). Pits (the flat tiles of empty days) are never in the way.
  */
-export const inFront = (depth: number, rodDepth: number): number => smoothstep(FRONT_FROM, FRONT_TO, depth - rodDepth);
-
-/** The soft circle: 1 inside the plateau, 0 from `radius` out, a smoothstep between. `dist` and `radius` in the same unit. */
-export const circleFalloff = (dist: number, radius: number): number => (radius <= 0 ? 0 : 1 - smoothstep(radius * CUTAWAY_PLATEAU, radius, dist));
-
-/** The share of a fragment that is taken away by one cutaway, 0 (kept) to `strength`. `amount` is the eased 0..1 in/out. */
-export const cutFade = (dist: number, radius: number, depth: number, rodDepth: number, strength: number, amount: number): number => strength * amount * circleFalloff(dist, radius) * inFront(depth, rodDepth);
+export function inTheWay(cell: number, boxes: readonly Box[], toCamera: readonly [number, number, number]): Set<number> {
+  const out = new Set<number>();
+  if (cell < 0) return out;
+  const points = samplePoints(boxes.filter((b) => b.cell === cell));
+  for (const b of boxes) {
+    if (b.cell === cell || b.pit || out.has(b.cell)) continue;
+    for (const p of points) {
+      if (rayHitsBox(p, toCamera, b)) {
+        out.add(b.cell);
+        break;
+      }
+    }
+  }
+  return out;
+}
 
 /** A step of an exponential ease toward `target` (frame-rate independent). */
 export const easeStep = (value: number, target: number, dtMs: number, tauMs = CUTAWAY_TAU_MS): number => {
@@ -51,61 +90,33 @@ export const easeStep = (value: number, target: number, dtMs: number, tauMs = CU
   return Math.abs(next - target) < 0.004 ? target : next;
 };
 
-export interface CutSlot {
-  cell: number;
-  amount: number;
-  target: number;
-}
-
 /**
- * Two slots, so that a change of selection crosses over instead of popping: the old circle fades out while the new one fades in. Returns the slots after selecting `cell` (-1: none): the slot already on that cell (if any) is the
- * target 1, every other one is 0; a new cell takes the slot with the least amount (so a rod that is fading out is the one reused).
+ * One step of every day's fade (in place) toward 1 for the days in the way and 0 for the others. Returns whether anything is still moving.
  */
-export function selectSlot(slots: readonly [CutSlot, CutSlot], cell: number): [CutSlot, CutSlot] {
-  const next: [CutSlot, CutSlot] = [{ ...slots[0] }, { ...slots[1] }];
-  if (cell < 0) {
-    next.forEach((s) => (s.target = 0));
-    return next;
+export function stepFades(fade: Float32Array, wanted: ReadonlySet<number>, dtMs: number): boolean {
+  let moving = false;
+  for (let i = 0; i < fade.length; i++) {
+    const target = wanted.has(i) ? 1 : 0;
+    if (fade[i] === target) continue;
+    fade[i] = easeStep(fade[i]!, target, dtMs);
+    if (fade[i] !== target) moving = true;
   }
-  let k = next.findIndex((s) => s.cell === cell && s.target > 0);
-  if (k < 0) k = next.findIndex((s) => s.cell === cell && s.amount > 0);
-  if (k < 0) {
-    k = next[0].amount <= next[1].amount ? 0 : 1;
-    next[k] = { cell, amount: next[k]!.amount, target: 1 };
-    // (a slot that is still showing another cell would jump: it only gets here when it is the emptier of the two)
-    if (next[k]!.amount > 0.5) next[k]!.amount = 0.5;
-  }
-  next.forEach((s, i) => (s.target = i === k ? 1 : 0));
-  return next;
+  return moving;
 }
 
-/** GLSL for the vertex stage (after `project_vertex`): where the point is in the world and on the screen. */
-export const CUT_VERTEX = `  vCutW = (modelMatrix * vec4(transformed, 1.0)).xyz;\n  vCutN = gl_Position.xy / gl_Position.w;`;
+/** The sequence of thresholds a pixel sees, one per averaged frame: the golden-ratio step visits [0, 1) evenly, so n frames cover a fade of k/n exactly. */
+export const cutSeed = (frame: number): number => (frame * 0.6180339887) % 1;
 
-/** GLSL for the fragment stage (first thing in `main`): the point is dropped in proportion to `cutFade`, by comparing it with a threshold that is spread evenly over the frames that are averaged (stratified), so it converges to a smooth fade. */
-export const cutFragment = (): string => `
+/** GLSL, vertex stage (declarations, then after `begin_vertex`): the day this vertex belongs to. */
+export const CUT_DECLS_VERTEX = "attribute float aCell;\nvarying float vCutCell;";
+export const CUT_VERTEX = "  vCutCell = aCell;";
+/** GLSL, fragment stage: the day's fade is read from a texture, one texel a day; the fragment is dropped in proportion to it, by a threshold spread evenly over the frames that are averaged, so that it converges to a smooth fade. */
+export const CUT_DECLS_FRAGMENT = "varying float vCutCell;\nuniform highp sampler2D uCutFade;\nuniform float uCutStrength;\nuniform float uCutSeed;";
+export const CUT_FRAGMENT = `
   {
-    float cutF = 0.0;
-    for (int ci = 0; ci < 2; ci++) {
-      vec4 cs = uCutSlot[ci];           // xy: rod xz, z: rod depth, w: amount * strength
-      vec2 cc = uCutNdc[ci];
-      if (cs.w <= 0.0) continue;
-      float inCell = max(abs(vCutW.x - cs.x), abs(vCutW.z - cs.y));
-      if (inCell < 0.5) continue;
-      float depth = dot(vCutW, uCutView) - cs.z;
-      float d = length((vCutN - cc) * 0.5 * uCutSize);
-      float fall = 1.0 - smoothstep(uCutRadius * ${CUTAWAY_PLATEAU.toFixed(2)}, uCutRadius, d);
-      float front = smoothstep(${FRONT_FROM.toFixed(2)}, ${FRONT_TO.toFixed(2)}, depth);
-      cutF = max(cutF, cs.w * fall * front);
-    }
+    float cutF = texelFetch(uCutFade, ivec2(int(vCutCell + 0.5), 0), 0).r * uCutStrength;
     if (cutF > 0.0) {
       float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
       if (fract(ign + uCutSeed) < cutF) discard;
     }
   }`;
-
-export const CUT_DECLS_VERTEX = "varying vec3 vCutW;\nvarying vec2 vCutN;";
-export const CUT_DECLS_FRAGMENT = "varying vec3 vCutW;\nvarying vec2 vCutN;\nuniform vec4 uCutSlot[2];\nuniform vec2 uCutNdc[2];\nuniform vec3 uCutView;\nuniform vec2 uCutSize;\nuniform float uCutRadius;\nuniform float uCutSeed;";
-
-/** The sequence of thresholds a pixel sees, one per averaged frame: the golden-ratio step visits [0, 1) evenly, so n frames cover a fade of k/n exactly. */
-export const cutSeed = (frame: number): number => (frame * 0.6180339887) % 1;

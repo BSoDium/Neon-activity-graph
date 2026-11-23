@@ -4,7 +4,7 @@ import { clampTone, sameColor } from "./color";
 import { layoutGraph, type Matrix } from "./layout";
 import { createNeon } from "./neon";
 import { sideShares, type Neighbour } from "./edge-light";
-import { CUT_DECLS_FRAGMENT, CUT_DECLS_VERTEX, CUT_FRAGMENT_ADD, CUT_FRAGMENT_ALPHA, CUT_VERTEX, inTheWay, resolveCutaway, stepFades } from "./cutaway";
+import { CUT_DECLS_FRAGMENT, CUT_DECLS_VERTEX, CUT_FRAGMENT_FADING, CUT_FRAGMENT_LIGHT, CUT_VERTEX_FADING, CUT_VERTEX_LIGHT, CUT_VERTEX_SOLID, inTheWay, resolveCutaway, stepFades } from "./cutaway";
 import { renderSize } from "./size";
 import { createHoverHum } from "./hover-hum";
 import { dayAfterKey } from "./keys";
@@ -229,7 +229,6 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const DARK_BACKDROP_CAP = 0.15;
       /** (light theme) how much of the colour of the blocks behind a block (as the camera sees it) its glass takes, when they cover all of its outline. */
       const LIGHT_BEHIND_TINT = 0.85;
-      // --- the cutaway: what is in front of the selected rod is dropped, per fragment, in a soft circle round it (see `cutaway.ts`); the uniforms are shared by every block material ---
       // (development, `debug.hide`: a band of the blocks, across the picture from `from` to `to` (0 left, 1 right), is not drawn, glass and rods, while the ground, its light and the shadows stay: to see what lights what)
       const clipBand = (mat: import("three").Material) => {
         if (!dbg.hide) return;
@@ -249,28 +248,49 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         uCutFade: { value: cutTex },
         uCutStrength: { value: cutCfg?.strength ?? 0 },
       };
-      // (a day fades by its alpha if its blocks are drawn with alpha (the glass), by its colour if they are lights drawn additively; `mat.transparent` is set for the first, once, as it changes the program)
-      // (a faded block is still in the depth buffer unless it stops writing it: what is drawn after the glass (the ground's light, the shadows) would be cut out behind it, as black; so while any day is faded the glass writes no depth, and at rest it does, as before)
-      const cutGlass = new Set<import("three").Material>();
-      const cutDepth = () => {
+      // --- the cutaway: the days in the way of the selected one fade out, whole (see `cutaway.ts`); the uniforms are shared by every block material ---
+      // (a solid block (the glass, the light theme's core) is drawn twice: by its own material, opaque, which leaves out the blocks that are fading, and by a fading twin, transparent and writing no depth, drawn after all the glass, which
+      // draws only those, with the fade as its alpha. So the picture at rest is the opaque one, untouched, and a fading block hides nothing drawn after it: what is behind it shows through it. The twins are hidden at rest.)
+      // (a light drawn additively (a rod) is not doubled: it fades by its colour)
+      const cutTwins: import("three").Object3D[] = [];
+      const cutShowTwins = () => {
         const faded = cutFade.some((v) => v > 0);
-        for (const m of cutGlass) m.depthWrite = !faded;
+        for (const t of cutTwins) t.visible = faded;
       };
-      const cutPatch = (mat: import("three").Material, mode: "alpha" | "add" = "alpha") => {
-        if (!cutCfg) return;
-        if (mode === "alpha") {
-          mat.transparent = true;
-          cutGlass.add(mat);
-        }
+      /** Adds the cutaway's GLSL to a material: `vertex` after `begin_vertex`, and `fragment` before (or `after`) `opaque_fragment`. */
+      const patchCut = (mat: import("three").Material, key: string, vertex: string, fragment?: string, after = false) => {
         const base = mat.customProgramCacheKey();
         const prev = mat.onBeforeCompile;
         mat.onBeforeCompile = (shader, r) => {
           prev.call(mat, shader, r);
           Object.assign(shader.uniforms, cutU);
-          shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_VERTEX).replace("#include <begin_vertex>", "#include <begin_vertex>\n" + CUT_VERTEX);
-          shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_FRAGMENT).replace("#include <opaque_fragment>", (mode === "alpha" ? CUT_FRAGMENT_ALPHA : CUT_FRAGMENT_ADD) + "\n#include <opaque_fragment>");
+          shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_VERTEX).replace("#include <begin_vertex>", "#include <begin_vertex>\n" + vertex);
+          if (fragment) shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_FRAGMENT).replace("#include <opaque_fragment>", after ? "#include <opaque_fragment>\n" + fragment : fragment + "\n#include <opaque_fragment>");
         };
-        mat.customProgramCacheKey = () => base + "|cut-" + mode;
+        mat.customProgramCacheKey = () => base + "|cut-" + key;
+      };
+      /** Makes `mat` a solid block's material for the cutaway, and returns its fading twin (null with the cutaway off); call it once `mat` is set up, as the twin is a copy of it. */
+      const cutPatch = <M extends import("three").Material>(mat: M): M | null => {
+        if (!cutCfg) return null;
+        const twin = mat.clone() as M;
+        twin.onBeforeCompile = mat.onBeforeCompile;
+        twin.customProgramCacheKey = mat.customProgramCacheKey;
+        twin.transparent = true;
+        twin.depthWrite = false;
+        patchCut(twin, "fading", CUT_VERTEX_FADING, CUT_FRAGMENT_FADING, true);
+        patchCut(mat, "solid", CUT_VERTEX_SOLID);
+        return twin;
+      };
+      /** The fading twin of a solid block's mesh, drawn after every solid glass (`renderOrder`), hidden at rest. */
+      const cutTwinMesh = (mesh: import("three").Mesh, twin: import("three").Material | null) => {
+        if (!twin) return null;
+        const t = new THREE.Mesh(mesh.geometry, twin);
+        t.renderOrder = 100;
+        t.castShadow = false;
+        t.receiveShadow = mesh.receiveShadow;
+        t.visible = cutFade.some((v) => v > 0);
+        cutTwins.push(t);
+        return t;
       };
       const coreMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
       // (the glass is perfectly clear; it is the core that is soft: its colour fades toward a pale haze of itself toward its silhouette, so it is a blurred glow in the middle of the block, with no hard edge)
@@ -280,7 +300,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
           .replace("#include <common>", "#include <common>\nvarying vec3 vCoreN;")
           .replace("#include <color_fragment>", "#include <color_fragment>\n  float cf = pow(clamp(abs(normalize(vCoreN).z), 0.0, 1.0), 0.9);\n  diffuseColor.rgb = mix(mix(diffuseColor.rgb, vec3(1.0), CORE_HAZE), diffuseColor.rgb, cf);".replace("CORE_HAZE", "0.5"));
       };
-      cutPatch(coreMaterial);
+      const coreTwin = cutPatch(coreMaterial);
       // (in the dark theme the cores are lights: unlit, their colour is the light they give out, brighter than 1 for a busy day, which the bloom and the glow on the ground turn into a glow)
       // (dark) a rod is an emitter, not an absorber: it is drawn ADDITIVELY (`transparent` stays false, so that it is in the opaque pass the glass sees, and three.js still blends it additively): it adds its light to what is behind it and takes none away, so a dim rod is a faint light over whatever is lit there and an off rod is not there at all
       /** (dark) a rod's brightest channel is compressed above `ROD_KNEE` towards `ROD_MAX` (any hue), and whitened by up to `ROD_WHITE` where it is brightest. */
@@ -364,9 +384,10 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
           .replace("#include <color_fragment>", "#include <color_fragment>\n  diffuseColor.rgb *= vRodA;\n  // (a very bright rod is not a flat blob of its colour: above the knee its level is compressed, whatever its hue, and what is left of it is whitened a little, as a real light too bright for the eye or the film turns to a hot white core with the colour round it; the faces' shading survives, as a smaller difference)\n  float rm = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));\n  if (rm > " + ROD_KNEE.toFixed(2) + ") {\n    float rc = " + ROD_KNEE.toFixed(2) + " + " + (ROD_MAX - ROD_KNEE).toFixed(2) + " * tanh(min((rm - " + ROD_KNEE.toFixed(2) + ") / " + (ROD_MAX - ROD_KNEE).toFixed(2) + ", 12.0));\n    // (only a SATURATED rod is held back: a pale one, like the stock blue whose brightness is light added to all three channels, is already a hot core and keeps its full power)\n    float rs = smoothstep(0.62, 0.85, (rm - min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b))) / rm);\n    diffuseColor.rgb = mix(diffuseColor.rgb, mix(diffuseColor.rgb * (rc / rm), vec3(rc), " + ROD_WHITE.toFixed(2) + " * smoothstep(" + ROD_KNEE.toFixed(2) + ", 3.0, rm)), rs);\n  }");
       };
       glowMaterial.customProgramCacheKey = () => "rod-levels";
-      cutPatch(glowMaterial, "add");
+      if (cutCfg) patchCut(glowMaterial, "light", CUT_VERTEX_LIGHT, CUT_FRAGMENT_LIGHT);
       clipBand(glowMaterial);
       clipBand(coreMaterial);
+      if (coreTwin) clipBand(coreTwin);
       // `shade` (dark theme): the faces of a block are not all lit alike, as if the light were from above and to the left of the camera, and a block is brighter toward its top: its top is the brightest face, then the side that
       // faces left, then the one that faces the viewer, and the foot is dimmer. An emissive block has no light on it to give it a form, so this puts the form back (without it a busy blue stretch is a field of flat boxes).
       const paint = (g: BufferGeometry, col: Color, glow = 0, shade = false) => {
@@ -602,7 +623,17 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
           mesh.rotation.x = -Math.PI / 2;
           // (just above the empty tiles: the glow and the contact shadows lie over them as over the ground, so a tile is lit by its neighbours like the rest of the scene)
           mesh.position.set(width / 2, 0.11 + order * 0.002, total / 2);
-          mesh.renderOrder = order;
+          // (drawn with the opaque things, after them (`renderOrder` 1 to 3) and so before the glass: three.js keeps the blending of a material that is not `transparent`, as it does for the rods (a normal blend is spelt out, as it
+          // would be dropped). The glass hides them as before, and a block fading out in the cutaway, drawn after them, shows them behind it as it shows the ground, instead of having them drawn over it.)
+          if (mat.blending === THREE.NormalBlending) {
+            mat.blending = THREE.CustomBlending;
+            mat.blendSrc = THREE.SrcAlphaFactor;
+            mat.blendDst = THREE.OneMinusSrcAlphaFactor;
+            mat.blendSrcAlpha = THREE.OneFactor;
+            mat.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+          }
+          mat.transparent = false;
+          mesh.renderOrder = 1 + order;
           layers.add(mesh);
           disposers.push(() => {
             tex.dispose();
@@ -767,6 +798,8 @@ void main() {
             uBackdrop.value = r.getRenderTarget() === sceneRT ? 0 : 1;
           };
           proxy.frustumCulled = false;
+          // (after the ground's layers, which are drawn into what the glass sees too: it covers them there)
+          proxy.renderOrder = 5;
           layers.add(proxy);
           disposers.push(() => {
             bake.dispose();
@@ -829,6 +862,8 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
             uBackdrop.value = r.getRenderTarget() === sceneRT ? 0 : 1;
           };
           proxy.frustumCulled = false;
+          // (after the ground's layers, which are drawn into what the glass sees too: it covers them there)
+          proxy.renderOrder = 5;
           layers.add(proxy);
           disposers.push(() => {
             proxyMat.dispose();
@@ -1304,22 +1339,30 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
             // (two-sided: three.js draws the BACK faces of a double-sided glass into what the glass in front of it sees, so a block behind another tints it)
             mat.side = LIGHT_DOUBLE_SIDED ? THREE.DoubleSide : THREE.FrontSide;
           }
-          cutPatch(mat);
           clipBand(mat);
+          const twin = cutPatch(mat);
           materials.push(mat);
+          if (twin) materials.push(twin);
           const glass = new THREE.Mesh(mergeGeometries(list)!, mat);
           glass.castShadow = true;
           glass.receiveShadow = true;
           group.add(glass);
+          const fading = cutTwinMesh(glass, twin);
+          if (fading) group.add(fading);
           list.forEach((p) => p.dispose());
         }
-        group.userData.dispose = () => materials.forEach((m) => m.dispose());
+        group.userData.dispose = () => {
+          materials.forEach((m) => m.dispose());
+          for (const c of group.children) if (cutTwins.includes(c)) cutTwins.splice(cutTwins.indexOf(c), 1);
+        };
         if (cores.length) {
           const core = new THREE.Mesh(mergeGeometries(cores), dark ? glowMaterial : coreMaterial);
           // (after the opaque things it adds to, the ground's backdrop first: an additive rod drawn before it would be painted over)
           if (dark) core.renderOrder = 10;
           core.castShadow = false;
           group.add(core);
+          const fading = dark ? null : cutTwinMesh(core, coreTwin);
+          if (fading) group.add(fading);
         }
         [...cores, ...tiles].forEach((p) => p.dispose());
         tileShape?.dispose();
@@ -1345,7 +1388,7 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
         // (the lights must not change while the blocks they light are being replaced: the neon and the selection are stopped, `done` starts them again)
         stopNeon();
         window.clearTimeout(focusTimer);
-        window.clearTimeout(focusRaf);
+        focusMoving = false;
         cancelAnimationFrame(raf);
         raf = 0;
         const dark = isDark();
@@ -1390,6 +1433,12 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
             });
             blocks.clear();
             blocks.add(result.value);
+            // (the cutaway's twins are hidden at rest: their programs are made now, in the background where the browser can, and not at the first selection, which would stall on them)
+            if (cutTwins.length) {
+              for (const t of cutTwins) t.visible = true;
+              renderer.compileAsync(scene, camera).catch(() => {});
+              cutShowTwins();
+            }
             building = false;
             done();
           });
@@ -1759,7 +1808,6 @@ void main(){
       let effective = new Float32Array(0);
       let lastLevels: ArrayLike<number> = new Float32Array(0);
       let idleLook = false;
-      let focusRaf = 0;
       let focusTimer = 0;
       const applyLevels = (levels: ArrayLike<number>) => {
         // (the blocks the levels are for are being replaced)
@@ -1792,8 +1840,8 @@ void main(){
         if (held < 0) return hum.set(lvl);
         hum.set(lvl, neonBlocks[held]!.pan, neonBlocks[held]!.cell, neonBlocks[held]!.t);
       };
+      /** One step of the focus glow's fade (the levels only: `animTick` draws it); returns whether it is still moving. */
       const stepFocus = () => {
-        focusRaf = 0;
         let moving = false;
         for (let i = 0; i < focus.length; i++) {
           const d = focusTo[i]! - focus[i]!;
@@ -1804,14 +1852,27 @@ void main(){
         }
         applyLevels(lastLevels);
         humLevel();
-        // (each step of the fade is drawn from a few samples at once and shown together, not sample by sample: the first of a restart, alone, is the noisiest picture there is)
+        return moving;
+      };
+      // --- one ticker for the eased changes of the selection, the focus glow and the cutaway: each step moves whichever is moving and draws ONE sample, blended into the picture (`ema`), never more, whatever moves; when both are
+      // done the picture goes on from the samples it has to the full number, as at any other time (no picture drawn from a few samples from nothing, which is noisier than the settled one and made the end of a fade jump) ---
+      let animId = 0;
+      let focusMoving = false;
+      let cutMoving = false;
+      const animTick = () => {
+        animId = 0;
+        if (focusMoving) focusMoving = stepFocus();
+        if (cutMoving) cutMoving = stepCut();
         ema(lite ? 0.45 : 0.3);
-        if (moving) focusRaf = window.setTimeout(stepFocus, 1000 / (lite ? 20 : 30)) as unknown as number;
+        if (focusMoving || cutMoving) animId = window.setTimeout(animTick, 1000 / (lite ? 20 : 30));
         else {
-          // (the fade is over: the picture goes on from the samples it has, up to the full number, it does not start again from one)
           samplesCap = samples;
           if (!raf) raf = requestAnimationFrame(frame);
         }
+      };
+      /** Starts the ticker, now, unless a step is already due (it will take the change). */
+      const animate = () => {
+        if (!animId) animTick();
       };
       // (a debounce: the day is taken a moment after the pointer stops on it, and let go a moment after it leaves)
       const GHOST = 0.12;
@@ -1820,37 +1881,23 @@ void main(){
         if (!focusCtl || building) return;
         focusTimer = window.setTimeout(() => {
           for (let i = 0; i < focusTo.length; i++) focusTo[i] = cell < 0 ? 1 : neonBlocks[i]!.cell === cell ? Math.min(FOCUS_MAX_GAIN, Math.max(FOCUS_ON, FOCUS_MIN_PEAK / Math.max(neonBlocks[i]!.peak, 1e-3))) : ghosts.includes(neonBlocks[i]!.cell) ? GHOST : FOCUS_OFF;
-          window.clearTimeout(focusRaf);
-          stepFocus();
+          focusMoving = true;
+          animate();
         }, cell < 0 ? 140 : 70);
       };
       // --- the cutaway: the days in the way of the selected one fade out whole, each eased by itself, so a change of selection crosses over on its own (the days no longer in the way come back as the new ones go) ---
       let cutWanted = new Set<number>();
       let cutTimer = 0;
-      let cutLoopId = 0;
       let cutLast = 0;
-      const cutLoop = () => {
-        cutLoopId = 0;
+      /** One step of every day's fade (`animTick` draws it); returns whether any is still moving. */
+      const stepCut = () => {
         const now = performance.now();
         const dt = neonAllowed() ? Math.min(100, now - cutLast) : 1e6;
         cutLast = now;
         const moving = stepFades(cutFade, cutWanted, dt);
         cutTex.needsUpdate = true;
-        cutDepth();
-        // (each step is drawn from a few samples at once, from nothing)
-        const k = lite ? 2 : 4;
-        cancelAnimationFrame(raf);
-        raf = 0;
-        n = 0;
-        jitter += k;
-        samplesCap = 0;
-        cm(() => frameBody(k));
-        if (moving) cutLoopId = window.setTimeout(cutLoop, 1000 / (lite ? 20 : 30));
-        else {
-          // (done: the picture goes on from these samples to the full number, where it settles; at rest, nothing runs)
-          samplesCap = samples;
-          if (!raf) raf = requestAnimationFrame(frame);
-        }
+        cutShowTwins();
+        return moving;
       };
       const cutOn = (cell: number) => {
         window.clearTimeout(cutTimer);
@@ -1860,19 +1907,19 @@ void main(){
           camera.updateMatrixWorld();
           const v = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 2).normalize();
           cutWanted = inTheWay(cell, picks, [v.x, v.y, v.z]);
-          cutLast = performance.now();
-          window.clearTimeout(cutLoopId);
-          cutLoop();
+          // (the first step is taken now: it moves the fades by the time since the last one, `cutLast`)
+          if (!cutMoving) cutLast = performance.now() - 1000 / 30;
+          cutMoving = true;
+          animate();
         }, cell < 0 ? 120 : 50);
       };
       const cutReset = () => {
         window.clearTimeout(cutTimer);
-        window.clearTimeout(cutLoopId);
-        cutLoopId = 0;
+        cutMoving = false;
         cutWanted = new Set();
         cutFade.fill(0);
         cutTex.needsUpdate = true;
-        cutDepth();
+        cutShowTwins();
       };
       const prepareNeon = (skipStartup = false) => {
         cutReset();
@@ -1882,7 +1929,7 @@ void main(){
         // (`onLit`: whether the picture is lit, for the page's greeting: not while the start-up runs, always when there is none)
         onLit?.(false);
         window.clearTimeout(focusTimer);
-        window.clearTimeout(focusRaf);
+        focusMoving = false;
         focusCtl = isDark() && stampCtl && neonBlocks.length > 0 && neonBlocks.length <= MAX_LEVELS ? stampCtl : null;
         focus = new Float32Array(neonBlocks.length).fill(1);
         focusTo = new Float32Array(neonBlocks.length).fill(1);
@@ -2241,9 +2288,9 @@ void main(){
         stopNeon();
         hum.stop();
         window.clearTimeout(focusTimer);
-        window.clearTimeout(focusRaf);
+        window.clearTimeout(animId);
+        animId = 0;
         window.clearTimeout(cutTimer);
-        window.clearTimeout(cutLoopId);
         cancelAnimationFrame(raf);
         window.clearTimeout(resizeTimer);
         dom.removeEventListener("pointermove", onMove);
@@ -2263,6 +2310,7 @@ void main(){
         boxes.forEach((g) => g.dispose());
         blockMaterial.dispose();
         coreMaterial.dispose();
+        coreTwin?.dispose();
         glowMaterial.dispose();
         levelTex.dispose();
         lampTex.dispose();

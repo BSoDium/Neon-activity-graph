@@ -1,6 +1,6 @@
 /**
  * The cutaway: the days that stand in the way of the selected one (they hide it from the camera) fade away, whole, so the selected day can be seen. Pure maths (the picking of the days in the way, the easing), kept apart so that it
- * can be tested; the shader side is a few lines of GLSL at the bottom.
+ * can be tested; the shader side is a few lines of GLSL at the bottom (how they are used: `cutPatch` in `graph.ts`).
  */
 
 export interface CutawayOptions {
@@ -104,11 +104,19 @@ export function stepFades(fade: Float32Array, wanted: ReadonlySet<number>, dtMs:
   return moving;
 }
 
-/** GLSL, vertex stage (declarations, then after `begin_vertex`): the day this vertex belongs to. */
-export const CUT_DECLS_VERTEX = "attribute float aCell;\nvarying float vCutCell;";
-export const CUT_VERTEX = "  vCutCell = aCell;";
-/** GLSL, fragment stage: the day's fade is read from a texture, one texel a day (the only cost of the cutaway, and only a fetch). */
-export const CUT_DECLS_FRAGMENT = "varying float vCutCell;\nuniform highp sampler2D uCutFade;\nuniform float uCutStrength;";
-/** Placed before `opaque_fragment`: a block that is drawn with alpha (the glass) fades by its alpha (set, not multiplied: a transmissive glass takes the alpha of the picture it sees through, which is 0 where there is only the page, and was dropped by `OPAQUE` before the glass was made transparent); a light that is drawn additively (a rod) by its colour. */
-export const CUT_FRAGMENT_ALPHA = "  float cutF = texelFetch(uCutFade, ivec2(int(vCutCell + 0.5), 0), 0).r * uCutStrength;\n  diffuseColor.a = 1.0 - cutF;";
-export const CUT_FRAGMENT_ADD = "  float cutF = texelFetch(uCutFade, ivec2(int(vCutCell + 0.5), 0), 0).r * uCutStrength;\n  outgoingLight *= 1.0 - cutF;";
+/** GLSL, vertex stage (declarations): the day this vertex belongs to, and its fade, read from a texture of one texel a day (once a vertex: the fade is the same over a whole block). */
+export const CUT_DECLS_VERTEX = "attribute float aCell;\nuniform highp sampler2D uCutFade;\nuniform float uCutStrength;\nvarying float vCutF;";
+const CUT_FETCH = "  vCutF = texelFetch(uCutFade, ivec2(int(aCell + 0.5), 0), 0).r * uCutStrength;";
+/**
+ * GLSL, vertex stage, after `begin_vertex`. A faded block is drawn by its fading twin and not by its solid self, and the other way round: the one that must not draw it collapses it to a point (no triangle, no fragment, no depth), so the
+ * solid blocks keep the opaque pipeline (and the depth buffer) exactly as at rest, and only what fades is blended.
+ */
+export const CUT_VERTEX_SOLID = CUT_FETCH + "\n  if (vCutF > 0.0) transformed = vec3(0.0);";
+/** (the twin also leaves out a block that is gone, faded right out: it would cost the whole glass shader for nothing) */
+export const CUT_VERTEX_FADING = CUT_FETCH + "\n  if (vCutF <= 0.0 || vCutF >= 1.0) transformed = vec3(0.0);";
+export const CUT_VERTEX_LIGHT = CUT_FETCH;
+export const CUT_DECLS_FRAGMENT = "varying float vCutF;";
+/** GLSL, after `opaque_fragment`: the fading twin's alpha is the fade alone (set last, so that nothing three.js puts in the alpha, such as the transmitted picture's, which can be over 1 where the additive rods are, gets into the blending). */
+export const CUT_FRAGMENT_FADING = "  gl_FragColor.a = 1.0 - vCutF;";
+/** GLSL, before `opaque_fragment`: a light that is drawn additively (a rod) fades by its colour. */
+export const CUT_FRAGMENT_LIGHT = "  outgoingLight *= 1.0 - vCutF;";

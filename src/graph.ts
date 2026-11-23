@@ -5,7 +5,7 @@ import { layoutGraph, type Matrix } from "./layout";
 import { createNeon } from "./neon";
 import { renderSize } from "./size";
 import { createHoverHum } from "./hover-hum";
-import type { ContentBounds, GraphData, GraphOptions, LayerColors, Startup, Tones } from "./types";
+import type { ContentBounds, GraphData, HoverInfo, GraphOptions, LayerColors, Startup, Tones } from "./types";
 import { CAMERA_DIR, glassShades, lightBehind, roomFor, shiftsFromLayers, slabFor } from "./view";
 
 /** How much of the light behind a block of glass the glass takes (the whole of it covering), and the least that is let through however many there are in front. */
@@ -1815,7 +1815,7 @@ void main(){
       let stack: number[] = [];
       let stackAt = { x: 0, y: 0 };
       let cycling = false;
-      const announce = (cell: number, behind?: { index: number; count: number }) => {
+      const announce = (cell: number, behind?: { index: number; count: number }, source: HoverInfo["source"] = "pointer") => {
         current = cell;
         // (the days in front of the one looked at are ghosts: it is seen through them)
         focusOn(cell, behind ? stack.slice(0, behind.index) : []);
@@ -1851,7 +1851,7 @@ void main(){
         }
         // (in the light theme the glass is a pale shell, `LIGHT_SHELL_WHITE` toward white over the tone: that is the colour the outline lies on)
         if (!isDark()) mix.lerp(new THREE.Color(1, 1, 1), 0.55);
-        onHover({ color: `#${mix.getHexString()}`, background: `#${pageColour().getHexString()}`, index: cell, date: g.date, top: g.value, bottom: layout.bottom.cells[cell]?.value ?? 0, outline: resample(hull(corners), 64).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), x: c.x, y: c.y, behind });
+        onHover({ color: `#${mix.getHexString()}`, background: `#${pageColour().getHexString()}`, index: cell, date: g.date, top: g.value, bottom: layout.bottom.cells[cell]?.value ?? 0, source, outline: resample(hull(corners), 64).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "), x: c.x, y: c.y, behind });
       };
       const onMove = (e: PointerEvent) => {
         if (e.pointerType === "touch" || settling) return;
@@ -1866,7 +1866,7 @@ void main(){
         if (cell !== current) {
           stack = here;
           stackAt = { x: e.clientX, y: e.clientY };
-          announce(cell, here.length > 1 ? { index: 0, count: here.length } : undefined);
+          announce(cell, here.length > 1 ? { index: 0, count: here.length } : undefined, "pointer");
         }
       };
       const onLeave = () => {
@@ -1887,13 +1887,13 @@ void main(){
           const next = (Math.max(0, stack.indexOf(current)) + 1) % stack.length;
           cycling = true;
           pinned = true;
-          announce(stack[next]!, { index: next, count: stack.length });
+          announce(stack[next]!, { index: next, count: stack.length }, "pointer");
           return;
         }
         // (a tap pins a day; a tap on the same spot goes to the next one behind it, and after the last lets go; a tap elsewhere pins that spot's nearest)
         if (pinned && sameSpot && current >= 0) {
           const next = stack.indexOf(current) + 1;
-          if (next < stack.length) return announce(stack[next]!, { index: next, count: stack.length });
+          if (next < stack.length) return announce(stack[next]!, { index: next, count: stack.length }, "touch");
           pinned = false;
           return announce(-1);
         }
@@ -1901,7 +1901,7 @@ void main(){
         stack = here;
         stackAt = { x: e.clientX, y: e.clientY };
         pinned = cell !== -1 && cell !== current;
-        announce(pinned ? cell : -1, pinned && here.length > 1 ? { index: 0, count: here.length } : undefined);
+        announce(pinned ? cell : -1, pinned && here.length > 1 ? { index: 0, count: here.length } : undefined, "touch");
       };
       // (the keys: the arrows walk the days, Escape lets go)
       const onKey = (e: KeyboardEvent) => {
@@ -1916,7 +1916,7 @@ void main(){
         e.preventDefault();
         next = current < 0 ? last : Math.min(last, Math.max(0, current + step));
         pinned = true;
-        announce(next);
+        announce(next, undefined, "key");
       };
       // (not in the tab order: a focus ring round the whole picture is ugly; a click still focuses it, so the arrow keys walk the days after one)
       el.tabIndex = -1;

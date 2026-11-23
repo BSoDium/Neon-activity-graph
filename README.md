@@ -125,7 +125,7 @@ interface GraphLayer {
 
 | Callback | |
 | --- | --- |
-| `onHover(info \| null)` | The day under the pointer or the arrow keys: `{ index, date, top, bottom, color, background, outline, x, y, behind? }`. `color` is the colour of the column (its taller block, as seen) and `background` the page's, both `#rrggbb`. `outline` is the SVG `points` of the column's silhouette and `x, y` a point on its top, in CSS pixels of the container. Clicking where days stand behind one another cycles through them (`behind: { index, count }`). |
+| `onHover(info \| null)` | The day under the pointer or the arrow keys: `{ index, date, top, bottom, source, color, background, outline, x, y, behind? }`. `source` is what selected the day: `"pointer"`, `"touch"` or `"key"` (to word a hint, "click" or "tap", or to draw your own focus state). `color` is the colour of the column (its taller block, as seen) and `background` the page's, both `#rrggbb`. `outline` is the SVG `points` of the column's silhouette and `x, y` a point on its top, in CSS pixels of the container. Clicking where days stand behind one another cycles through them (`behind: { index, count }`). |
 | `onLayout(bounds)` | Where the blocks are, `{ left, right, top, bottom }` in CSS pixels of the container, on the first layout and on every resize. |
 | `onReady()` | The first picture is on screen. |
 | `onRedrawn()` | The picture has been drawn again and is in focus: after the first build and after every rebuild (theme, colours, resize). Time an effect to this rather than to the click that asked for it. |
@@ -183,7 +183,7 @@ Sound plays only once the browser lets the page make it (after the visitor has i
 
 - The container is a `group` with an accessible name (`label`).
 - Once the graph has been clicked, the arrow keys walk the days (left and right by week, up and down by day) and Escape lets go. The graph is not in the tab order.
-- The overlay announces the selected day through a polite live region.
+- The overlay announces the selected day through a polite live region (for the keyboard and for taps, not for a mouse sweeping over the days).
 - With `prefers-reduced-motion` (or `reducedMotion: true`) there is no start-up and no flicker.
 
 If the graph carries information your page does not give elsewhere, add a text alternative of your own (a summary or a table).

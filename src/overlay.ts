@@ -103,7 +103,8 @@ export function createHoverOverlay(container: HTMLElement, options: OverlayOptio
         if (!seen) requestAnimationFrame(() => (cardEl.style.transition = ""));
         seen = true;
       }
-      live.textContent = `${formatDay(info.date, locale)}: ${formatValue(info.top)} and ${formatValue(info.bottom)}`;
+      // (read out for the keyboard and for taps, not for every day a mouse sweeps over)
+      live.textContent = info.source === "pointer" ? "" : `${formatDay(info.date, locale)}: ${formatValue(info.top)} and ${formatValue(info.bottom)}`;
     },
     destroy() {
       root.remove();

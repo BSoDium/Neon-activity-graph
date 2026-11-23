@@ -45,6 +45,8 @@ export interface HoverInfo {
   color: string;
   /** The page's colour behind the picture (`#rrggbb`), as the graph resolved it. */
   background: string;
+  /** What made this day the selected one: the mouse (`"pointer"`), a tap (`"touch"`) or the keyboard (`"key"`, the arrow keys, Home, End, PageUp, PageDown or the focus landing on the graph). A host can gate its live region or word its hint on it ("click" or "tap"), and draw its own focus state when it is `"key"`. */
+  source: "pointer" | "touch" | "key";
   /** The values of the two layers on that day. */
   top: number;
   bottom: number;

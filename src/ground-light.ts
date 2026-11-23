@@ -234,14 +234,6 @@ export async function loadCausticTemplates(THREE: typeof T, url: string): Promis
   return { texture, heights: TEMPLATE_HEIGHTS, feet: TEMPLATE_FEET, extent: TEMPLATE_EXTENT };
 }
 
-/** The dynamic range of the rods' light on the ground (development): `falloff` how fast a dimmer rod's light is cut (0: not at all), `reach` the size of the light of the dimmest rods as a share of full (1: not smaller). */
-export interface DynamicRange {
-  falloff?: number;
-  reach?: number;
-}
-/** A rod at this share of the brightest one's, or more, lights the ground as it is. */
-export const RANGE_KNEE = 0.4;
-
 /** A block whose baked light is to be laid on the ground: where it is, its height and the height of its foot, and the colour of its light with its strength. */
 export interface StampedBlock {
   x: number;
@@ -255,15 +247,14 @@ export interface StampedBlock {
 }
 
 const STAMP_VERT = /* glsl */ `
-attribute vec2 iPos; attribute vec3 iCol; attribute vec4 iIdx; attribute vec3 iPoolCol; attribute float iPoolR; attribute float iReach;
+attribute vec2 iPos; attribute vec3 iCol; attribute vec4 iIdx; attribute vec3 iPoolCol; attribute float iPoolR;
 uniform vec4 uGrid; uniform vec2 uSize; uniform float uExtent;
 varying vec3 vCol; varying vec2 vLocal; varying vec4 vIdx; varying vec3 vPoolCol; varying float vPoolR;
 void main() {
   vPoolCol = iPoolCol; vPoolR = iPoolR;
   vLocal = position.xy * 2. * uExtent;
   vCol = iCol; vIdx = iIdx;
-  // (the footprint of the light is drawn smaller for a dim rod, iReach of its size, while the template is still read at its own scale: the same glow, closer in)
-  vec2 world = iPos + vLocal * iReach;
+  vec2 world = iPos + vLocal;
   float gx = (world.x - uGrid.y) * uGrid.x;
   float gz = (world.y - uGrid.z) * uGrid.x;
   gl_Position = vec4(gx / uSize.x * 2. - 1., 1. - gz / uSize.y * 2., 0., 1.);
@@ -379,7 +370,7 @@ void main() { gl_FragColor = (texture2D(map, vUv - 2. * stepv) + 4. * texture2D(
    * The baked light of blocks (dark theme): a quad per block, textured with the template of its size, added into the target. Returns what changes it afterwards: `update(levels)` sets how much of its light each block
    * gives out (0 to 1, one per block, in the order they were given) and draws the ground's light again, which is one draw of a few hundred quads.
    */
-  const stamps = (blocks: StampedBlock[], templates: CausticTemplates, range: DynamicRange = {}) => {
+  const stamps = (blocks: StampedBlock[], templates: CausticTemplates) => {
     const geo = new THREE.InstancedBufferGeometry();
     const plane = new THREE.PlaneGeometry(1, 1);
     geo.setAttribute("position", plane.getAttribute("position"));
@@ -390,17 +381,6 @@ void main() { gl_FragColor = (texture2D(map, vUv - 2. * stepv) + 4. * texture2D(
     const idx = new Float32Array(blocks.length * 4);
     const poolBase = new Float32Array(blocks.length * 3);
     const poolR = new Float32Array(blocks.length);
-    const reach = new Float32Array(blocks.length).fill(1);
-    // (the dynamic range of the rods: a rod's strength is its share of the brightest one's; at or above `RANGE_KNEE` of it, it lights the ground as it is, in strength and in reach; below, its light is cut by an exponential ramp of how far it is from the knee, and its reach shrinks with it, to `range.reach` of its size at the dimmest)
-    const falloff = range.falloff ?? 0;
-    const minReach = Math.min(1, Math.max(0, range.reach ?? 1));
-    const strength = blocks.map((b) => Math.max(b.col[0], b.col[1], b.col[2]));
-    const brightest = strength.reduce((m, v) => Math.max(m, v), 1e-9);
-    const ramp = blocks.map((_, i) => {
-      if (falloff <= 0 && minReach >= 1) return 1;
-      const r = Math.min(1, strength[i]! / brightest / RANGE_KNEE);
-      return falloff > 0 ? (Math.exp(falloff * r) - 1) / (Math.exp(falloff) - 1) : r;
-    });
     // (a value's place between two classes: the lower class and how far on to the next)
     const place = (v: number, classes: number[]): [number, number] => {
       if (v <= classes[0]!) return [0, 0];
@@ -409,13 +389,11 @@ void main() { gl_FragColor = (texture2D(map, vUv - 2. * stepv) + 4. * texture2D(
     };
     blocks.forEach((b, i) => {
       pos.set([b.x, b.z], i * 2);
-      const k = falloff > 0 ? ramp[i]! : 1;
-      base.set([b.col[0] * k, b.col[1] * k, b.col[2] * k], i * 3);
-      reach[i] = minReach >= 1 ? 1 : minReach + (1 - minReach) * ramp[i]!;
+      base.set(b.col, i * 3);
       const [h0, fh] = place(b.height, templates.heights);
       const [f0, ff] = place(b.foot, templates.feet);
       idx.set([h0, fh, f0, ff], i * 4);
-      poolBase.set([b.poolCol[0] * k, b.poolCol[1] * k, b.poolCol[2] * k], i * 3);
+      poolBase.set(b.poolCol, i * 3);
       poolR[i] = b.poolRadius;
     });
     const poolColours = new THREE.InstancedBufferAttribute(poolBase.slice(), 3);
@@ -425,7 +403,6 @@ void main() { gl_FragColor = (texture2D(map, vUv - 2. * stepv) + 4. * texture2D(
     geo.setAttribute("iIdx", new THREE.InstancedBufferAttribute(idx, 4));
     geo.setAttribute("iPoolCol", poolColours);
     geo.setAttribute("iPoolR", new THREE.InstancedBufferAttribute(poolR, 1));
-    geo.setAttribute("iReach", new THREE.InstancedBufferAttribute(reach, 1));
     const mat = new THREE.ShaderMaterial({
       vertexShader: STAMP_VERT,
       fragmentShader: STAMP_FRAG,

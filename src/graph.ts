@@ -227,17 +227,10 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const DARK_BACKDROP_GAIN = 200;
       /** (dark) the most the light seen behind the glass can add, on its brightest channel (a soft cap that keeps the hue). */
       const DARK_BACKDROP_CAP = 0.15;
+      /** (dark) how much each unit of glass between the camera and the ground dims the ground's light the glass shows (exp(-k * length)). */
+      const GROUND_GLASS_ABSORB = 0.6;
       /** (light theme) how much of the colour of the blocks behind a block (as the camera sees it) its glass takes, when they cover all of its outline. */
       const LIGHT_BEHIND_TINT = 0.85;
-      // (development, `debug.hide`: a band of the blocks, across the picture from `from` to `to` (0 left, 1 right), is not drawn, glass and rods, while the ground, its light and the shadows stay: to see what lights what)
-      const clipBand = (mat: import("three").Material) => {
-        if (!dbg.hide) return;
-        const xa = width * (1 - Math.max(dbg.hide.from, dbg.hide.to));
-        const xb = width * (1 - Math.min(dbg.hide.from, dbg.hide.to));
-        mat.clippingPlanes = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), xa), new THREE.Plane(new THREE.Vector3(1, 0, 0), -xb)];
-        mat.clipIntersection = true;
-      };
-      if (dbg.hide) renderer.localClippingEnabled = true;
       const cutCfg = resolveCutaway(opts.cutaway);
       const cutCells = Math.max(1, layout.top.cells.length);
       // (one number a day, 0 to 1: how far the day is faded away; eased on the CPU, read by the blocks' shaders)
@@ -377,8 +370,6 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, blending: THREE.AdditiveBlending, depthWrite: false });
       /** (dark) how much of the ground's light the glass shows, 1 at rest, lower when the lights are dimmed (see `applyLevels`): shared with the backdrop's shader. */
       const backdropDim = { value: 1 };
-      /** (dark) how much of the ground's light the glass shows, as a share (development: `debug.glassGround`; `noGlassGround` is 0). */
-      const groundK = () => (dbg.noGlassGround ? 0 : Math.min(1, Math.max(0, dbg.glassGround ?? 1)));
       /** GLSL: the light seen behind, `g` (linear), scaled and then capped softly on its brightest channel, so a strong hue is not overexposed whatever the palette: its colour is kept, only its level is compressed. */
       const softSeen = `vec3 softSeen(vec3 g) { float m = max(g.r, max(g.g, g.b)); if (m < 1e-6) return g; float k = ${DARK_BACKDROP_CAP.toFixed(3)}; return g * (k * tanh(min(m * ${DARK_BACKDROP_GAIN.toFixed(3)} / k, 12.0)) / m); }`;
       // how much each rod gives out, 0 to 1, one number per block, read by the rod's vertices (`aBlock` is the block's number): the neon start-up changes them over time
@@ -434,8 +425,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const lampData = new Float32Array(MAX_LEVELS * 2 * 4);
       const lampTex = new THREE.DataTexture(lampData, MAX_LEVELS, 2, THREE.RGBAFormat, THREE.FloatType);
       lampTex.needsUpdate = true;
-      /** (dark) how strong the specular reflections of the lit blocks round a block are on its glass (development: `debug.glassSpec`, 0 is none), and how many lamps a block reflects. */
-      const specK = Math.max(0, dbg.glassSpec ?? 1);
+      /** (dark) how many lamps a block's glass reflects, and how far they can be. */
       const REFLECTED_LAMPS = 8;
       const REFLECT_RANGE = 9;
       /** How much of the lamp's own hue the reflections take, against its core's whitened colour (1: all). */
@@ -452,9 +442,6 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       };
       glowMaterial.customProgramCacheKey = () => "rod-levels";
       if (cutCfg) patchCut(glowMaterial, "light", CUT_VERTEX_LIGHT, CUT_FRAGMENT_LIGHT);
-      clipBand(glowMaterial);
-      clipBand(coreMaterial);
-      if (coreTwin) clipBand(coreTwin);
       // `shade` (dark theme): the faces of a block are not all lit alike, as if the light were from above and to the left of the camera, and a block is brighter toward its top: its top is the brightest face, then the side that
       // faces left, then the one that faces the viewer, and the foot is dimmer. An emissive block has no light on it to give it a form, so this puts the form back (without it a busy blue stretch is a field of flat boxes).
       const paint = (g: BufferGeometry, col: Color, glow = 0, shade = false) => {
@@ -676,7 +663,6 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
           stampCtl = !templates ? null : ground.stamps(
             glass.map((g) => ({ x: g.c[0], z: g.c[2], height: 2 * g.h[1], foot: g.c[1] - g.h[1], col: [g.col[0] * g.power, g.col[1] * g.power, g.col[2] * g.power] as [number, number, number], poolCol: g.pool!.col, poolRadius: g.pool!.r })),
             templates,
-            { falloff: dbg.rodFalloff ?? 0, reach: dbg.rodReach ?? 1 },
           );
         } else {
           const sunDir = new THREE.Vector3().copy(sunBase).normalize().negate();
@@ -880,7 +866,7 @@ void main() {
           for (const q of picks) if (!q.pit) heights[Math.round(q.z) * cols + Math.round(q.x)] = Math.max(heights[Math.round(q.z) * cols + Math.round(q.x)]!, q.y1);
           const heightTex = new THREE.DataTexture(heights, cols, rows, THREE.RedFormat, THREE.FloatType);
           heightTex.needsUpdate = true;
-          const absorb = Math.max(0, dbg.glassAbsorb ?? 0);
+          const absorb = GROUND_GLASS_ABSORB;
           const maxH = tallest;
           const pw = cw / PX;
           const ph = ch / PX;
@@ -1364,7 +1350,7 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
             mat.onBeforeCompile = (shader) => {
               shader.uniforms.uLevels = { value: levelTex };
               shader.uniforms.uLamps = { value: lampTex };
-              shader.uniforms.uSpec = { value: specK };
+              shader.uniforms.uSpec = { value: 1 };
               // (what is left of the glow and of the reflections when the rod is off is the same for every block, whatever its size or its day: as a share of this tier's own intensities, whatever they are)
               shader.uniforms.uFloorEm = { value: OFF_EMISSIVE / Math.max(mat.emissiveIntensity, 1e-4) };
               shader.uniforms.uFloorEnv = { value: mat.envMapIntensity > 0 ? OFF_ENV / mat.envMapIntensity : 0 };
@@ -1401,7 +1387,6 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
             // (two-sided: three.js draws the BACK faces of a double-sided glass into what the glass in front of it sees, so a block behind another tints it)
             mat.side = LIGHT_DOUBLE_SIDED ? THREE.DoubleSide : THREE.FrontSide;
           }
-          clipBand(mat);
           const twin = cutPatch(mat);
           materials.push(mat);
           if (twin) materials.push(twin);
@@ -1899,7 +1884,7 @@ void main(){
         // (the ground's light seen through the glass follows how lit the scene is, and more than in proportion: with every light dimmed it all but goes out)
         let lit = 0;
         for (let i = 0; i < n; i++) lit += Math.min(1, effective[i]!);
-        backdropDim.value = groundK() * (n > 0 ? (lit / n) ** BACKDROP_DIM_POWER : 1);
+        backdropDim.value = (n > 0 ? (lit / n) ** BACKDROP_DIM_POWER : 1);
       };
       // (the hum of the selected neon follows its brightness, once the start-up is over and when the page may make sound)
       const hum = createHoverHum();
@@ -2012,7 +1997,7 @@ void main(){
         effective = new Float32Array(neonBlocks.length).fill(1);
         lastLevels = new Float32Array(neonBlocks.length).fill(1);
         idleLook = false;
-        backdropDim.value = groundK();
+        backdropDim.value = 1;
         if (focusCtl) applyLevels(lastLevels);
         if (!isDark() || !neonAllowed() || skipStartup || !stampCtl || neonBlocks.length === 0 || neonBlocks.length > MAX_LEVELS) return void ((humOk = true), onLit?.(true));
         const ctl = stampCtl;
@@ -2272,39 +2257,6 @@ void main(){
       dom.addEventListener("pointermove", onMove);
       dom.addEventListener("pointerleave", onLeave);
       dom.addEventListener("pointerdown", onDown);
-      // TEMPORARY, development only (`debug.orbit`, to be removed before a release): right-drag (or alt-drag) turns the camera round the scene, to look at the lighting from other sides. The picture is fitted again at every step.
-      if (dbg.orbit) {
-        const d0 = new THREE.Vector3(...CAMERA_DIR).normalize();
-        let az = Math.atan2(d0.x, d0.z);
-        let el = Math.asin(d0.y);
-        let drag: { x: number; y: number } | null = null;
-        const place = () => {
-          const ce = Math.cos(el);
-          camera.position.set(centre.x + 900 * ce * Math.sin(az), centre.y + 900 * Math.sin(el), centre.z + 900 * ce * Math.cos(az));
-          camera.lookAt(centre);
-          camera.updateMatrixWorld();
-          fit();
-        };
-        dom.addEventListener("contextmenu", (e) => e.preventDefault());
-        dom.addEventListener("pointerdown", (e) => {
-          if (e.button !== 2 && !e.altKey) return;
-          drag = { x: e.clientX, y: e.clientY };
-          dom.setPointerCapture(e.pointerId);
-        });
-        dom.addEventListener("pointermove", (e) => {
-          if (!drag) return;
-          az -= (e.clientX - drag.x) * 0.006;
-          el = Math.min(1.5, Math.max(0.12, el + (e.clientY - drag.y) * 0.006));
-          drag = { x: e.clientX, y: e.clientY };
-          place();
-        });
-        const end = (e: PointerEvent) => {
-          if (drag) dom.releasePointerCapture(e.pointerId);
-          drag = null;
-        };
-        dom.addEventListener("pointerup", end);
-        dom.addEventListener("pointercancel", end);
-      }
       el.addEventListener("keydown", onKey);
       el.addEventListener("focus", onFocus);
       el.addEventListener("blur", onBlur);

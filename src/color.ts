@@ -96,20 +96,14 @@ export function contrastRatio(a: ColorInput, b: ColorInput): number {
 export const OUTLINE_CONTRAST = { background: 4.5, cell: 4.5 };
 
 /**
- * The colour of the outline round a cell: the opposite of what is behind it. The hue is the cell's turned half way round the OKLCH wheel (blue to orange, green to magenta), and the lightness is pushed away from the cell's, to the side where
- * the outline also stands out from the page (`background`: half of the outline is over the ground, half over the block). Of every lightness, the one kept is the one that best reaches `OUTLINE_CONTRAST` against both (the nearest to
- * the cell's own on a tie), so the outline is as colourful as the contrast allows. A grey cell (almost no chroma) has no hue to turn: it gets a grey outline picked by contrast alone, near-black or near-white, and a cell between the two
- * gets a part of the colour. Always a `#rrggbb`. Pure.
+ * The outline round a cell, monochrome: the grey of the lightness that best reaches `OUTLINE_CONTRAST` against both the cell and the page (`background`: half of the outline is over the ground, half over the block), the nearest to the cell's own
+ * lightness on a tie. So a light cell gets a dark grey, a dark one a light grey, and a mid one whichever side the page is not on; the hue of the cell is not used (a green block does not get a purple line). Always a grey `#rrggbb`. Pure.
  */
 export function invertedOutline(cell: ColorInput, background: ColorInput): string {
-  const { l: l0, c: c0, h } = srgbToOklch(parseColor(cell));
-  const hue = (h + 180) % 360;
-  // (how coloured the cell is: 0 for a grey, 1 from a chroma of 0.06; the outline's chroma follows, at least that of a clear colour)
-  const k = Math.min(1, Math.max(0, (c0 - 0.012) / 0.05));
-  const chroma = k * Math.min(0.2, Math.max(0.14, c0 * 1.1));
+  const l0 = srgbToOklch(parseColor(cell)).l;
   let best = { score: -1, dist: 9, rgb: [0, 0, 0] as [number, number, number] };
   for (let L = 0.04; L <= 0.985; L += 0.005) {
-    const rgb = fit(L, chroma, hue);
+    const rgb = fromGrey(L);
     const c = hex(rgb);
     const score = Math.min(1, contrastRatio(c, background) / OUTLINE_CONTRAST.background, contrastRatio(c, cell) / OUTLINE_CONTRAST.cell);
     const dist = Math.abs(L - l0);

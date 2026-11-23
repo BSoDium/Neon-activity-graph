@@ -6,8 +6,7 @@ export interface OverlayOptions {
   /** Draw the outline of the day's blocks (default true). */
   outline?: boolean;
   /**
-   * What colour the outline is: `"inverted"` (default) takes the opposite of what is behind it (the column's colour turned half way round the hue wheel, its lightness pushed away from the column's and the page's so that it holds a contrast of 4.5:1 against the page and, where the colours allow it, against the column; greys get a
-   * near-black or near-white one), `"text"` is the text colour (`currentColor`), as before. `--nag-outline` overrides either; the inverted one is cased in the page's colour (`--nag-outline-halo`, `transparent` for none).
+   * What colour the outline is: `"inverted"` (default) is a grey chosen by contrast against the column and the page (dark on a light column, light on a dark one, never the column's hue), 4.5:1 where the colours allow it; `"text"` is the text colour (`currentColor`), as before. `--nag-outline` overrides either; the inverted one is cased in the page's colour (`--nag-outline-halo`, `transparent` for none).
    */
   outlineColor?: "inverted" | "text";
   /** The day card: `true` for the default one, `false` for none, or a function that returns its content (text or a node). */

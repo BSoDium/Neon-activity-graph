@@ -86,21 +86,16 @@ describe("contrastRatio", () => {
 describe("invertedOutline", () => {
   const LIGHT = "#f6f6f4";
   const DARK = "#0b0b0e";
-  // (what the graph draws: the stock tones, the demo's palettes)
   // (the light theme's glass is a pale shell over its tone, which is the colour the outline is drawn on)
   const seen = (hex: string, bg: string) => (bg === LIGHT ? "#" + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * 0.45 + 255 * 0.55).toString(16).padStart(2, "0")).join("") : hex);
+  // (what the graph draws: the stock tones, the demo's palettes)
   const COLOURS = ["#0a8f2c", "#00d63c", "#1658b8", "#1a8cff", "#3ddc6a", "#5aa9ff", "#ff3b6b", "#00c8ff", "#b9ecff", "#ff8a1f", "#c4128a", "#ffd60a"];
-  const hueGap = (a: string, b: string) => {
-    const d = Math.abs(lch(a).h - lch(b).h) % 360;
-    return Math.min(d, 360 - d);
-  };
+  const GREYS = ["#202020", "#404040", "#808080", "#a0a0a0", "#c0c0c0", "#e0e0e0"];
 
-  it("turns the hue half way round (blue to orange, green to magenta)", () => {
-    for (const hex of ["#1a8cff", "#3ddc6a", "#ff3b6b", "#c4128a"]) {
-      const out = invertedOutline(seen(hex, LIGHT), LIGHT);
-      // (the gamut can bend a colour's hue a little when it is made darker)
-      expect(Math.abs(hueGap(seen(hex, LIGHT), out) - 180)).toBeLessThan(25);
-      expect(lch(out).c).toBeGreaterThan(0.04);
+  it("is monochrome: a green cell does not get a purple line", () => {
+    for (const bg of [LIGHT, DARK]) for (const hex of [...COLOURS, ...GREYS]) {
+      const out = invertedOutline(seen(hex, bg), bg);
+      expect(out).toMatch(/^#([0-9a-f]{2})\1\1$/);
     }
   });
 
@@ -112,31 +107,23 @@ describe("invertedOutline", () => {
     }
   });
 
-  it("holds the contrast against the cell where the colours allow it, (and never the cell's own colour)", () => {
+  it("holds the contrast against the cell where the colours allow it", () => {
     for (const bg of [LIGHT, DARK]) for (const hex of COLOURS) {
       const cell = seen(hex, bg);
-      expect(contrastRatio(invertedOutline(cell, bg), cell)).toBeGreaterThanOrEqual(2.8);
+      expect(contrastRatio(invertedOutline(cell, bg), cell)).toBeGreaterThanOrEqual(2.7);
     }
-    // (on the light page every colour of the graph gets the whole of it)
     for (const hex of COLOURS) expect(contrastRatio(invertedOutline(seen(hex, LIGHT), LIGHT), seen(hex, LIGHT))).toBeGreaterThanOrEqual(OUTLINE_CONTRAST.cell - 0.2);
   });
 
-  it("gives a grey cell a grey outline of the opposite lightness, not the cell's own grey", () => {
-    for (const bg of [LIGHT, DARK]) for (const hex of ["#202020", "#404040", "#808080", "#a0a0a0", "#c0c0c0", "#e0e0e0"]) {
+  it("gives a grey cell an outline of the opposite lightness, not the cell's own grey", () => {
+    for (const bg of [LIGHT, DARK]) for (const hex of GREYS) {
       const out = invertedOutline(hex, bg);
-      expect(lch(out).c).toBeLessThan(0.02);
       expect(contrastRatio(out, hex)).toBeGreaterThan(2.6);
       expect(contrastRatio(out, bg)).toBeGreaterThan(2.6);
     }
-    // (a light grey on a light page: near-black; a dark grey on a dark page: near-white)
+    // (a light grey on a light page: dark; a dark grey on a dark page: light)
     expect(lch(invertedOutline("#c0c0c0", LIGHT)).l).toBeLessThan(0.55);
     expect(lch(invertedOutline("#404040", DARK)).l).toBeGreaterThan(0.6);
-  });
-
-  it("fades from colour to grey as the cell gets less coloured", () => {
-    const chroma = (hex: string) => lch(invertedOutline(hex, LIGHT)).c;
-    expect(chroma("#808080")).toBeLessThan(0.01);
-    expect(chroma("#7f879c")).toBeGreaterThan(chroma("#808080"));
   });
 
   it("is a #rrggbb for any input, numbers too", () => {

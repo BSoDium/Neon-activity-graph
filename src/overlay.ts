@@ -15,6 +15,8 @@ export interface OverlayOptions {
   locale?: string;
 }
 
+let overlays = 0;
+
 export interface HoverOverlay {
   update(info: HoverInfo | null): void;
   destroy(): void;
@@ -35,7 +37,7 @@ export function createHoverOverlay(container: HTMLElement, options: OverlayOptio
   root.innerHTML = `<style>
 .nag-overlay{--nag-top-default:#0a8f2c;--nag-bottom-default:#1a6fe0}
 @media (prefers-color-scheme:dark){.nag-overlay{--nag-top-default:#3ddc6a;--nag-bottom-default:#5aa9ff}}
-.nag-halo{fill:none;stroke:var(--nag-outline-halo,var(--nag-halo-auto,transparent));stroke-width:4;stroke-linejoin:round;opacity:.9}
+.nag-halo{fill:none;stroke:var(--nag-outline-halo,var(--nag-halo-auto,transparent));stroke-width:var(--nag-halo-width,8);stroke-linejoin:round;opacity:var(--nag-halo-opacity,.5);filter:blur(var(--nag-halo-blur,3px))}
 .nag-outline{fill:var(--nag-outline-fill,color-mix(in srgb,currentColor 7%,transparent));stroke:var(--nag-outline,var(--nag-auto,currentColor));stroke-width:1.5;stroke-linejoin:round}
 .nag-card{position:absolute;left:0;top:0;padding:10px 14px;min-width:9.5em;border-radius:var(--nag-card-radius,12px);color:var(--nag-card-fg,inherit);font:13px/1.35 system-ui,sans-serif;white-space:nowrap;background:var(--nag-card-bg,color-mix(in srgb,Canvas 70%,transparent));-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 11%,transparent),0 14px 44px -12px rgb(0 0 0/.38),0 2px 10px -4px rgb(0 0 0/.22);transition:opacity .16s,transform .3s cubic-bezier(.2,.7,.2,1)}
 .nag-card .nag-day{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--nag-card-muted,color-mix(in srgb,currentColor 60%,transparent))}
@@ -54,7 +56,19 @@ export function createHoverOverlay(container: HTMLElement, options: OverlayOptio
   // (the casing: a thin line of the opposite lightness under the outline)
   const halo = document.createElementNS("http://www.w3.org/2000/svg", "path");
   halo.setAttribute("class", "nag-halo");
-  svg.append(halo, path);
+  // (the casing is a soft dip in the picture's brightness round the line, outside the outline only: a mask hides it inside)
+  const maskId = `nag-out-${++overlays}`;
+  const mask = document.createElementNS("http://www.w3.org/2000/svg", "mask");
+  mask.setAttribute("id", maskId);
+  mask.setAttribute("maskUnits", "userSpaceOnUse");
+  for (const [k, v] of Object.entries({ x: -2000, y: -2000, width: 6000, height: 6000 })) mask.setAttribute(k, String(v));
+  const everywhere = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  for (const [k, v] of Object.entries({ x: -2000, y: -2000, width: 6000, height: 6000, fill: "#fff" })) everywhere.setAttribute(k, String(v));
+  const inside = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  inside.setAttribute("fill", "#000");
+  mask.append(everywhere, inside);
+  halo.setAttribute("mask", `url(#${maskId})`);
+  svg.append(mask, halo, path);
   if (outline) root.append(svg);
   const cardEl = document.createElement("div");
   cardEl.className = "nag-card";
@@ -87,6 +101,7 @@ export function createHoverOverlay(container: HTMLElement, options: OverlayOptio
       }
       path.setAttribute("d", outlinePath(info.outline));
       halo.setAttribute("d", path.getAttribute("d")!);
+      inside.setAttribute("d", path.getAttribute("d")!);
       // (a white line on a near-black casing reads on dark, saturated glass and on the pale ground alike)
       const cased = outlineColor === "cased" || (outlineColor === "auto" && info.theme === "light");
       svg.style.setProperty("--nag-auto", cased ? "#fff" : "currentColor");

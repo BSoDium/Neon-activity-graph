@@ -240,7 +240,7 @@ export interface DynamicRange {
   reach?: number;
 }
 /** A rod at this share of the brightest one's, or more, lights the ground as it is. */
-export const RANGE_KNEE = 0.5;
+export const RANGE_KNEE = 0.4;
 
 /** A block whose baked light is to be laid on the ground: where it is, its height and the height of its foot, and the colour of its light with its strength. */
 export interface StampedBlock {

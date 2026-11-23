@@ -109,6 +109,6 @@ export const CUT_DECLS_VERTEX = "attribute float aCell;\nvarying float vCutCell;
 export const CUT_VERTEX = "  vCutCell = aCell;";
 /** GLSL, fragment stage: the day's fade is read from a texture, one texel a day (the only cost of the cutaway, and only a fetch). */
 export const CUT_DECLS_FRAGMENT = "varying float vCutCell;\nuniform highp sampler2D uCutFade;\nuniform float uCutStrength;";
-/** Placed before `opaque_fragment`: a block that is drawn with alpha (the glass) fades by its alpha; a light that is drawn additively (a rod) by its colour. */
-export const CUT_FRAGMENT_ALPHA = "  float cutF = texelFetch(uCutFade, ivec2(int(vCutCell + 0.5), 0), 0).r * uCutStrength;\n  diffuseColor.a *= 1.0 - cutF;";
+/** Placed before `opaque_fragment`: a block that is drawn with alpha (the glass) fades by its alpha (set, not multiplied: a transmissive glass takes the alpha of the picture it sees through, which is 0 where there is only the page, and was dropped by `OPAQUE` before the glass was made transparent); a light that is drawn additively (a rod) by its colour. */
+export const CUT_FRAGMENT_ALPHA = "  float cutF = texelFetch(uCutFade, ivec2(int(vCutCell + 0.5), 0), 0).r * uCutStrength;\n  diffuseColor.a = 1.0 - cutF;";
 export const CUT_FRAGMENT_ADD = "  float cutF = texelFetch(uCutFade, ivec2(int(vCutCell + 0.5), 0), 0).r * uCutStrength;\n  outgoingLight *= 1.0 - cutF;";

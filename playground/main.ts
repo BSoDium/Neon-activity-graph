@@ -85,7 +85,6 @@ const options = (): GraphOptions => ({
   colors: PALETTES[$<HTMLSelectElement>("palette").value],
   cutaway: $<HTMLInputElement>("cutaway").checked ? { strength: Number($<HTMLInputElement>("cut-strength").value), dot: Number($<HTMLInputElement>("cut-dot").value), noise: Number($<HTMLInputElement>("cut-noise").value) } : false,
   reducedMotion: location.search.includes("still") ? true : "auto",
-  rodOverlay: Number($<HTMLInputElement>("rod-overlay").value),
   debug: location.search.includes("metrics") ? { metrics: true } : undefined,
   rodColor: $<HTMLInputElement>("lights").checked ? lights : undefined,
   background: (theme) => getComputedStyle(document.body).backgroundColor || (theme === "dark" ? "#0b0b0e" : "#f6f6f4"),
@@ -115,7 +114,7 @@ const applyTheme = () => {
 
 mount();
 $("theme").addEventListener("change", applyTheme);
-for (const id of ["strips", "sound", "lite", "grain", "lights", "outline", "palette", "cutaway", "cut-dot", "cut-noise", "cut-strength", "rod-overlay"]) $(id).addEventListener("change", mount);
+for (const id of ["strips", "sound", "lite", "grain", "lights", "outline", "palette", "cutaway", "cut-dot", "cut-noise", "cut-strength"]) $(id).addEventListener("change", mount);
 $("again").addEventListener("click", () => {
   seed++;
   graph?.update(makeData());

@@ -129,8 +129,6 @@ export interface GraphOptions {
    * (0 to 1, default 0.6: what is left of them is a grainy screen, 1 is gone). `dot` is the cell of the halftone they are screened with, in CSS px (default 3; `0` for a fine noise), `noise` how grainy that screen is (0 regular, 1 pure grain; default 0.75). `false` turns it off. Costs nothing while nothing is selected.
    */
   cutaway?: boolean | CutawayOptions;
-  /** (dark) How much a rod shows over the blocks that are in front of it, 0 to 1 (default 0.25; 0 turns it off). A rod is a light: through the glass of a block in front of it it is only a blurred, tinted copy, which reads as the block hiding it; with this the rod is drawn again over that glass, faintly, where something is in front of it. */
-  rodOverlay?: number;
   /** The highest pixel ratio the picture is rendered at (default 2; a `lite` device always gets 1). */
   maxPixelRatio?: number;
   /** The most pixels the picture is rendered at (default 8 million: the render is scaled down on a very large container). */

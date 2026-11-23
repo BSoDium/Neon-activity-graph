@@ -118,7 +118,6 @@ interface GraphLayer {
 | `label` | "Activity graph, one column a day. …" | The accessible name. |
 | `templatesUrl` | embedded | Where to fetch `caustic-templates.png` from, instead of the embedded data URI. |
 | `cutaway` | `true` | `false`, or `{ strength?, dot?, noise? }`. While a day is selected, the days that stand in its way (that hide it from the camera) are screened away, whole, in both themes, so a day behind taller ones can be seen. `strength` is the share taken away (`0`–`1`, default `0.6`: a grainy screen is left; `1` is gone), `dot` the halftone cell in CSS px (default `3`; `0` for a fine noise), `noise` how grainy the screen is (`0` a regular halftone, `1` pure grain; default `0.75`). See [Cutaway](#cutaway). |
-| `rodOverlay` | `0.25` | (dark) `0`–`1`: how much a rod shows over the blocks in front of it, as a light does, instead of looking hidden by their glass. `0` turns it off. |
 | `maxPixelRatio` | `2` | The highest pixel ratio rendered (`lite` always renders at 1). |
 | `maxPixels` | `8_000_000` | The most pixels rendered; a larger container is rendered at a lower ratio. |
 | `debug` | | `{ metrics?, wireframe?, neonHold? }`: development helpers (`data-*` timings on the container, the glass as a cage, the picture held half on). |

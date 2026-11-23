@@ -334,17 +334,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
           .replace("#include <color_fragment>", "#include <color_fragment>\n  diffuseColor.rgb *= vRodA;\n  // (a very bright rod is not a flat blob of its colour: above the knee its level is compressed, whatever its hue, and what is left of it is whitened a little, as a real light too bright for the eye or the film turns to a hot white core with the colour round it; the faces' shading survives, as a smaller difference)\n  float rm = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));\n  if (rm > " + ROD_KNEE.toFixed(2) + ") {\n    float rc = " + ROD_KNEE.toFixed(2) + " + " + (ROD_MAX - ROD_KNEE).toFixed(2) + " * tanh(min((rm - " + ROD_KNEE.toFixed(2) + ") / " + (ROD_MAX - ROD_KNEE).toFixed(2) + ", 12.0));\n    // (only a SATURATED rod is held back: a pale one, like the stock blue whose brightness is light added to all three channels, is already a hot core and keeps its full power)\n    float rs = smoothstep(0.62, 0.85, (rm - min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b))) / rm);\n    diffuseColor.rgb = mix(diffuseColor.rgb, mix(diffuseColor.rgb * (rc / rm), vec3(rc), " + ROD_WHITE.toFixed(2) + " * smoothstep(" + ROD_KNEE.toFixed(2) + ", 3.0, rm)), rs);\n  }");
       };
       glowMaterial.customProgramCacheKey = () => "rod-levels";
-      /**
-       * (dark) A rod is a light: it must never be hidden by another block, only seen through it. In the opaque pass the glass of a block in front of it replaces it with a blurred, tinted copy (what the glass transmits), which reads as the block
-       * hiding it. So the rods are drawn a second time, over the glass, additively and faintly, where (and only where) something is in front of them: the depth test passes when the rod is BEHIND what is in the depth buffer. A rod
-       * behind a block shows over it as light does; a rod in the open is not touched by this (nothing in the depth buffer is nearer than it, except its own glass, which this lifts a little).
-       */
-      const ROD_OVERLAY = Math.min(1, Math.max(0, opts.rodOverlay ?? 0.25));
-      const glowOverlay = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, blending: THREE.AdditiveBlending, depthWrite: false, depthFunc: THREE.GreaterDepth, transparent: true, opacity: ROD_OVERLAY });
-      glowOverlay.onBeforeCompile = glowMaterial.onBeforeCompile;
-      glowOverlay.customProgramCacheKey = () => "rod-levels-overlay";
       cutPatch(glowMaterial);
-      cutPatch(glowOverlay);
       // `shade` (dark theme): the faces of a block are not all lit alike, as if the light were from above and to the left of the camera, and a block is brighter toward its top: its top is the brightest face, then the side that
       // faces left, then the one that faces the viewer, and the foot is dimmer. An emissive block has no light on it to give it a form, so this puts the form back (without it a busy blue stretch is a field of flat boxes).
       const paint = (g: BufferGeometry, col: Color, glow = 0, shade = false) => {
@@ -1212,14 +1202,6 @@ void main() {
           if (dark) core.renderOrder = 10;
           core.castShadow = false;
           group.add(core);
-          if (dark && ROD_OVERLAY > 0) {
-            // (the rods again, over the glass, where something is in front of them: see `ROD_OVERLAY`; after the glass, which is drawn before the transparent things)
-            const overlay = new THREE.Mesh(core.geometry, glowOverlay);
-            overlay.renderOrder = 20;
-            overlay.castShadow = false;
-            overlay.frustumCulled = false;
-            group.add(overlay);
-          }
         }
         [...cores, ...tiles].forEach((p) => p.dispose());
         tileShape?.dispose();
@@ -2132,7 +2114,6 @@ void main(){
         blockMaterial.dispose();
         coreMaterial.dispose();
         glowMaterial.dispose();
-        glowOverlay.dispose();
         levelTex.dispose();
         cutTex.dispose();
         viewObserver?.disconnect();

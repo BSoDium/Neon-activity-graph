@@ -4,7 +4,7 @@ import { clampTone, sameColor } from "./color";
 import { layoutGraph, type Matrix } from "./layout";
 import { createNeon } from "./neon";
 import { sideShares, type Neighbour } from "./edge-light";
-import { CUT_DECLS_FRAGMENT, CUT_DECLS_VERTEX, CUT_FRAGMENT_FADING, CUT_FRAGMENT_LIGHT, CUT_VERTEX_FADING, CUT_VERTEX_LIGHT, CUT_VERTEX_SOLID, inTheWay, resolveCutaway, stepFades } from "./cutaway";
+import { CUT_DECLS_FRAGMENT, CUT_DECLS_VERTEX, CUT_FRAGMENT_FADING, CUT_FRAGMENT_LIGHT, CUT_VERTEX_FADING, CUT_VERTEX_LIGHT, CUT_VERTEX_SOLID, CUT_VERTEX_SOLID_END, inTheWay, resolveCutaway, stepFades } from "./cutaway";
 import { renderSize } from "./size";
 import { createHoverHum } from "./hover-hum";
 import { dayAfterKey } from "./keys";
@@ -256,19 +256,51 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const cutTwins: import("three").Mesh[] = [];
       const cutShowTwins = () => {
         const k = cutCfg?.strength ?? 0;
+        let any = false;
         for (const t of cutTwins) {
           const f = cutFade[t.userData.cell as number] ?? 0;
           t.visible = f > 0 && f * k < 1;
+          any ||= t.visible;
         }
+        groundFirst(any);
       };
-      /** Adds the cutaway's GLSL to a material: `vertex` after `begin_vertex`, and `fragment` before (or `after`) `opaque_fragment`. */
-      const patchCut = (mat: import("three").Material, key: string, vertex: string, fragment?: string, after = false) => {
+      // (the layers that lie on the ground (the sun's shadow, the ground's light, the contact shadows) are drawn over the glass, as transparent things, where the glass's foot dips under them. A block fading in the cutaway, which
+      // writes no depth, would have them drawn over it too, so while one fades they are drawn with the opaque things instead, before the glass (three.js keeps the blending of a material that is not `transparent`, as it does for
+      // the rods; a normal blend is spelt out, as it would be dropped). The dark theme draws them that way always; the light theme only while a block fades, so that its picture at rest is the one it always was.)
+      const groundSwitches = new Set<(first: boolean) => void>();
+      let groundIsFirst: boolean | null = null;
+      const groundFirst = (fading: boolean) => {
+        const first = fading || isDark();
+        if (first === groundIsFirst) return;
+        groundIsFirst = first;
+        for (const f of groundSwitches) f(first);
+      };
+      /** Registers a ground layer: drawn at `renderOrder` `order` over the glass, or `first` (from 1) before it. Returns its unregistering. */
+      const groundLayer = (mesh: import("three").Mesh, order: number, first: number) => {
+        const mat = mesh.material as import("three").Material;
+        const normal = mat.blending === THREE.NormalBlending;
+        mat.blendSrc = THREE.SrcAlphaFactor;
+        mat.blendDst = THREE.OneMinusSrcAlphaFactor;
+        mat.blendSrcAlpha = THREE.OneFactor;
+        mat.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+        const set = (on: boolean) => {
+          mat.transparent = !on;
+          if (normal) mat.blending = on ? THREE.CustomBlending : THREE.NormalBlending;
+          mesh.renderOrder = on ? first : order;
+        };
+        set(groundIsFirst ?? isDark());
+        groundSwitches.add(set);
+        return () => void groundSwitches.delete(set);
+      };
+      /** Adds the cutaway's GLSL to a material: `vertex` after `begin_vertex` (and `vertexEnd` after `project_vertex`), and `fragment` before (or `after`) `opaque_fragment`. */
+      const patchCut = (mat: import("three").Material, key: string, vertex: string, fragment?: string, after = false, vertexEnd?: string) => {
         const base = mat.customProgramCacheKey();
         const prev = mat.onBeforeCompile;
         mat.onBeforeCompile = (shader, r) => {
           prev.call(mat, shader, r);
           Object.assign(shader.uniforms, cutU);
           shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_VERTEX).replace("#include <begin_vertex>", "#include <begin_vertex>\n" + vertex);
+          if (vertexEnd) shader.vertexShader = shader.vertexShader.replace("#include <project_vertex>", "#include <project_vertex>\n" + vertexEnd);
           if (fragment) shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\n" + CUT_DECLS_FRAGMENT).replace("#include <opaque_fragment>", after ? "#include <opaque_fragment>\n" + fragment : fragment + "\n#include <opaque_fragment>");
         };
         mat.customProgramCacheKey = () => base + "|cut-" + key;
@@ -282,7 +314,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         twin.transparent = true;
         twin.depthWrite = false;
         patchCut(twin, "fading", CUT_VERTEX_FADING, CUT_FRAGMENT_FADING, true);
-        patchCut(mat, "solid", CUT_VERTEX_SOLID);
+        patchCut(mat, "solid", CUT_VERTEX_SOLID, undefined, false, CUT_VERTEX_SOLID_END);
         return twin;
       };
       /**
@@ -660,19 +692,11 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
           mesh.rotation.x = -Math.PI / 2;
           // (just above the empty tiles: the glow and the contact shadows lie over them as over the ground, so a tile is lit by its neighbours like the rest of the scene)
           mesh.position.set(width / 2, 0.11 + order * 0.002, total / 2);
-          // (drawn with the opaque things, after them (`renderOrder` 1 to 3) and so before the glass: three.js keeps the blending of a material that is not `transparent`, as it does for the rods (a normal blend is spelt out, as it
-          // would be dropped). The glass hides them as before, and a block fading out in the cutaway, drawn after them, shows them behind it as it shows the ground, instead of having them drawn over it.)
-          if (mat.blending === THREE.NormalBlending) {
-            mat.blending = THREE.CustomBlending;
-            mat.blendSrc = THREE.SrcAlphaFactor;
-            mat.blendDst = THREE.OneMinusSrcAlphaFactor;
-            mat.blendSrcAlpha = THREE.OneFactor;
-            mat.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
-          }
-          mat.transparent = false;
-          mesh.renderOrder = 1 + order;
+          // (over the glass, or before it (see `groundLayer`))
+          const unregister = groundLayer(mesh, order, 1 + order);
           layers.add(mesh);
           disposers.push(() => {
+            unregister();
             tex.dispose();
             mat.dispose();
           });
@@ -1418,7 +1442,10 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
 
       const blocks = new THREE.Group();
       scene.add(blocks);
-      const ground0 = () => ((ground.material as import("three").ShadowMaterial).opacity = isDark() ? 0 : 0.05);
+      const ground0 = () => {
+        (ground.material as import("three").ShadowMaterial).opacity = isDark() ? 0 : 0.05;
+        groundFirst(cutTwins.some((t) => t.visible));
+      };
       // (a build in progress: its number, so that a newer one (a theme change, new colours) makes the older stop; and whether one is running, so that no frame is drawn of a scene half built)
       let buildToken = 0;
       let building = false;
@@ -1500,14 +1527,8 @@ outgoingLight = uPage + uDim * seen * softSeen(outgoingLight);
       // (above the empty tiles, under the glow and contact-shadow layers: the sun's shadows fall on a tile as on the ground)
       ground.position.set(width / 2, 0.06, total / 2);
       ground.receiveShadow = true;
-      // (drawn with the opaque things, after them and before the ground's layers and the glass, as those layers are (see `plane`): a block fading in the cutaway has it behind it, not over it)
-      ground.material.transparent = false;
-      ground.material.blending = THREE.CustomBlending;
-      ground.material.blendSrc = THREE.SrcAlphaFactor;
-      ground.material.blendDst = THREE.OneMinusSrcAlphaFactor;
-      ground.material.blendSrcAlpha = THREE.OneFactor;
-      ground.material.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
-      ground.renderOrder = 0.5;
+      // (a ground layer, under the others (see `groundLayer`))
+      groundLayer(ground, 0, 0.5);
       scene.add(ground);
 
       const sun = new THREE.DirectionalLight(0xffffff, 2.2);

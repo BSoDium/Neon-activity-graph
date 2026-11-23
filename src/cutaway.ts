@@ -108,10 +108,12 @@ export function stepFades(fade: Float32Array, wanted: ReadonlySet<number>, dtMs:
 export const CUT_DECLS_VERTEX = "attribute float aCell;\nuniform highp sampler2D uCutFade;\nuniform float uCutStrength;\nvarying float vCutF;";
 const CUT_FETCH = "  vCutF = texelFetch(uCutFade, ivec2(int(aCell + 0.5), 0), 0).r * uCutStrength;";
 /**
- * GLSL, vertex stage, after `begin_vertex`. A block that is fading is drawn by its fading twin (a mesh of its own, shown only then) and not by its solid self, which collapses it to a point (no triangle, no fragment, no depth): so
+ * GLSL, vertex stage, after `begin_vertex`. A block that is fading is drawn by its fading twin (a mesh of its own, shown only then) and not by its solid self, which collapses it to a point out of view (no triangle, no fragment, no depth): so
  * the solid blocks keep the opaque pipeline (and the depth buffer) exactly as at rest, and only what fades is blended.
  */
-export const CUT_VERTEX_SOLID = CUT_FETCH + "\n  if (vCutF > 0.0) transformed = vec3(0.0);";
+export const CUT_VERTEX_SOLID = CUT_FETCH;
+/** (the collapse is done on the clip-space position, after `project_vertex`, out of the clip volume: the position of a block that is drawn is computed exactly as without the cutaway, to the last bit) */
+export const CUT_VERTEX_SOLID_END = "  if (vCutF > 0.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);";
 export const CUT_VERTEX_FADING = CUT_FETCH;
 export const CUT_VERTEX_LIGHT = CUT_FETCH;
 export const CUT_DECLS_FRAGMENT = "varying float vCutF;";

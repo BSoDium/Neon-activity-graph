@@ -83,7 +83,7 @@ const options = (): GraphOptions => ({
   grain: Number($<HTMLInputElement>("grain").value),
   overlay: $<HTMLSelectElement>("outline").value === "off" ? false : { card: false, outlineColor: $<HTMLSelectElement>("outline").value as "auto" | "cased" | "text" },
   colors: PALETTES[$<HTMLSelectElement>("palette").value],
-  cutaway: $<HTMLInputElement>("cutaway").checked ? { strength: Number($<HTMLInputElement>("cut-strength").value), dot: Number($<HTMLInputElement>("cut-dot").value), noise: Number($<HTMLInputElement>("cut-noise").value), variation: Number($<HTMLInputElement>("cut-var").value) } : false,
+  cutaway: $<HTMLInputElement>("cutaway").checked ? { strength: Number($<HTMLInputElement>("cut-strength").value) } : false,
   reducedMotion: location.search.includes("still") ? true : "auto",
   debug: { metrics: location.search.includes("metrics"), noGlassGround: $<HTMLInputElement>("no-ground").checked, glassGround: Number($<HTMLInputElement>("glass-ground").value), glassSpec: Number($<HTMLInputElement>("glass-spec").value), glassAbsorb: Number($<HTMLInputElement>("glass-absorb").value), rodFalloff: Number($<HTMLInputElement>("rod-falloff").value), rodReach: Number($<HTMLInputElement>("rod-reach").value), orbit: $<HTMLInputElement>("orbit").checked, hide: $<HTMLInputElement>("hide").checked ? { from: Number($<HTMLInputElement>("hide-from").value), to: Number($<HTMLInputElement>("hide-to").value) } : undefined },
   rodColor: $<HTMLInputElement>("lights").checked ? lights : undefined,
@@ -114,7 +114,7 @@ const applyTheme = () => {
 
 mount();
 $("theme").addEventListener("change", applyTheme);
-for (const id of ["strips", "sound", "lite", "grain", "lights", "outline", "palette", "cutaway", "cut-dot", "cut-noise", "cut-var", "cut-strength", "no-ground", "glass-ground", "glass-spec", "glass-absorb", "rod-falloff", "rod-reach", "orbit", "hide", "hide-from", "hide-to"]) $(id).addEventListener("change", mount);
+for (const id of ["strips", "sound", "lite", "grain", "lights", "outline", "palette", "cutaway", "cut-strength", "no-ground", "glass-ground", "glass-spec", "glass-absorb", "rod-falloff", "rod-reach", "orbit", "hide", "hide-from", "hide-to"]) $(id).addEventListener("change", mount);
 $("again").addEventListener("click", () => {
   seed++;
   graph?.update(makeData());

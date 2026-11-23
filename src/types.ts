@@ -126,7 +126,7 @@ export interface GraphOptions {
   overlay?: boolean | OverlayOptions;
   /**
    * The cutaway (default on): while a day is selected, the days that stand in its way (those that hide it from the camera) fade away, whole and eased, so it can be seen through the days piled up in front. `strength` is the share taken away
-   * (0 to 1, default 0.6: what is left of them is a grainy screen, 1 is gone). `dot` is the cell of the halftone they are screened with, in CSS px (default 1: about a pixel; `0` for a fine noise), `noise` how grainy that screen is (0 regular, 1 pure grain; default 0.9), `variation` how much the opacity of the dots varies (0 all alike, 1 from clear to opaque; default 0.6). `false` turns it off. Costs nothing while nothing is selected.
+   * (0 to 1, default 1: they fade out completely; less leaves them faint). `false` turns it off. Costs nothing while nothing is selected.
    */
   cutaway?: boolean | CutawayOptions;
   /** The highest pixel ratio the picture is rendered at (default 2; a `lite` device always gets 1). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CUTAWAY_DEFAULTS, cutSeed, easeStep, inTheWay, rayHitsBox, resolveCutaway, stepFades, type Box } from "./cutaway";
+import { CUTAWAY_DEFAULTS, easeStep, inTheWay, rayHitsBox, resolveCutaway, stepFades, type Box } from "./cutaway";
 
 const box = (cell: number, x: number, z: number, y0: number, y1: number, pit = false): Box => ({ cell, x, z, y0, y1, pit });
 
@@ -78,18 +78,7 @@ describe("resolveCutaway", () => {
     expect(resolveCutaway(true)).toEqual(CUTAWAY_DEFAULTS);
     expect(resolveCutaway(false)).toBeNull();
     expect(resolveCutaway({ strength: 0 })).toBeNull();
-    expect(resolveCutaway({ strength: 3 })).toEqual({ strength: 1, dot: CUTAWAY_DEFAULTS.dot, noise: CUTAWAY_DEFAULTS.noise, variation: CUTAWAY_DEFAULTS.variation });
-    expect(resolveCutaway({ dot: 0 })).toEqual({ strength: CUTAWAY_DEFAULTS.strength, dot: 0, noise: CUTAWAY_DEFAULTS.noise, variation: CUTAWAY_DEFAULTS.variation });
-    expect(resolveCutaway({ dot: 99 })!.dot).toBe(32);
-    expect(resolveCutaway({ noise: 5 })!.noise).toBe(1);
-    expect(resolveCutaway({ variation: -1 })!.variation).toBe(0);
-  });
-});
-
-describe("cutSeed", () => {
-  it("spreads the thresholds evenly: n frames cover [0, 1) in steps of about 1/n", () => {
-    const n = 16;
-    const s = Array.from({ length: n }, (_, i) => cutSeed(i)).sort((x, y) => x - y);
-    for (let i = 1; i < n; i++) expect(s[i]! - s[i - 1]!).toBeLessThan(2 / n);
+    expect(resolveCutaway({ strength: 3 })).toEqual({ strength: 1 });
+    expect(resolveCutaway({ strength: 0.4 })).toEqual({ strength: 0.4 });
   });
 });

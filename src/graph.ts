@@ -1658,7 +1658,7 @@ void main(){
         // (the ground's light seen through the glass follows how lit the scene is, and more than in proportion: with every light dimmed it all but goes out)
         let lit = 0;
         for (let i = 0; i < n; i++) lit += Math.min(1, effective[i]!);
-        backdropDim.value = n > 0 ? (lit / n) ** BACKDROP_DIM_POWER : 1;
+        backdropDim.value = dbg.noGlassGround ? 0 : n > 0 ? (lit / n) ** BACKDROP_DIM_POWER : 1;
       };
       // (the hum of the selected neon follows its brightness, once the start-up is over and when the page may make sound)
       const hum = createHoverHum();
@@ -1772,7 +1772,7 @@ void main(){
         effective = new Float32Array(neonBlocks.length).fill(1);
         lastLevels = new Float32Array(neonBlocks.length).fill(1);
         idleLook = false;
-        backdropDim.value = 1;
+        backdropDim.value = dbg.noGlassGround ? 0 : 1;
         if (focusCtl) applyLevels(lastLevels);
         if (!isDark() || !neonAllowed() || skipStartup || !stampCtl || neonBlocks.length === 0 || neonBlocks.length > MAX_LEVELS) return void ((humOk = true), onLit?.(true));
         const ctl = stampCtl;

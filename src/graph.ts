@@ -5,6 +5,7 @@ import { layoutGraph, type Matrix } from "./layout";
 import { createNeon } from "./neon";
 import { renderSize } from "./size";
 import { createHoverHum } from "./hover-hum";
+import { dayAfterKey } from "./keys";
 import type { ContentBounds, GraphData, HoverInfo, GraphOptions, LayerColors, Startup, Tones } from "./types";
 import { CAMERA_DIR, glassShades, lightBehind, roomFor, shiftsFromLayers, slabFor } from "./view";
 
@@ -1903,28 +1904,42 @@ void main(){
         pinned = cell !== -1 && cell !== current;
         announce(pinned ? cell : -1, pinned && here.length > 1 ? { index: 0, count: here.length } : undefined, "touch");
       };
-      // (the keys: the arrows walk the days, Escape lets go)
+      // (the keys: the arrows walk the days (a week left and right, a day up and down), Home and End go to the first and the last, PageUp and PageDown a month (4 weeks) back and forward, Escape lets go; any other key, Tab included, is left alone)
       const onKey = (e: KeyboardEvent) => {
-        const last = cells.length - 1;
-        let next = current;
+        if (e.altKey || e.ctrlKey || e.metaKey) return;
         if (e.key === "Escape") {
+          if (current < 0) return;
           pinned = false;
           return announce(-1);
         }
-        const step = { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 }[e.key];
-        if (step === undefined) return;
+        const next = dayAfterKey(e.key, current, cells.length);
+        if (next === null) return;
         e.preventDefault();
-        next = current < 0 ? last : Math.min(last, Math.max(0, current + step));
         pinned = true;
+        // (the days stacked under the pointer are not the keyboard's business)
+        stack = [];
+        cycling = false;
         announce(next, undefined, "key");
       };
-      // (not in the tab order: a focus ring round the whole picture is ugly; a click still focuses it, so the arrow keys walk the days after one)
-      el.tabIndex = -1;
+      // Focusable, so that a keyboard can reach the days: Tab lands on the picture and the latest day is selected (when the focus comes from the keyboard: a click does not select anything). The focus ring is the browser's (`:focus-visible` on the container): restyle it with CSS,
+      // or draw your own from `onHover` (`source: "key"`). Leaving lets the day go.
+      el.tabIndex = 0;
+      const onFocus = () => {
+        if (current >= 0 || !el.matches(":focus-visible")) return;
+        pinned = true;
+        announce(cells.length - 1, undefined, "key");
+      };
+      const onBlur = () => {
+        pinned = false;
+        cycling = false;
+        if (current !== -1) announce(-1);
+      };
       dom.addEventListener("pointermove", onMove);
       dom.addEventListener("pointerleave", onLeave);
       dom.addEventListener("pointerdown", onDown);
       el.addEventListener("keydown", onKey);
-      el.addEventListener("blur", onLeave);
+      el.addEventListener("focus", onFocus);
+      el.addEventListener("blur", onBlur);
       // (the first size is taken at once; the next ones wait for the resizing to pause: the old picture is softened meanwhile)
       let first = true;
       let resizeTimer = 0;
@@ -1988,7 +2003,8 @@ void main(){
         dom.removeEventListener("pointerleave", onLeave);
         dom.removeEventListener("pointerdown", onDown);
         el.removeEventListener("keydown", onKey);
-        el.removeEventListener("blur", onLeave);
+        el.removeEventListener("focus", onFocus);
+        el.removeEventListener("blur", onBlur);
         onHover?.(null);
         ro.disconnect();
         mq.removeEventListener("change", onScheme);

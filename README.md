@@ -182,7 +182,7 @@ Sound plays only once the browser lets the page make it (after the visitor has i
 ## Accessibility
 
 - The container is a `group` with an accessible name (`label`).
-- Once the graph has been clicked, the arrow keys walk the days (left and right by week, up and down by day) and Escape lets go. The graph is not in the tab order.
+- The graph is in the tab order: Tab lands on it and selects the latest day, then the arrow keys walk the days (left and right by week, up and down by day), Home and End go to the first and last day, PageUp and PageDown four weeks back and forward, and Escape (or Tab away) lets go. The focus ring is the browser's `:focus-visible` one on the container: restyle it with CSS, or draw your own from `onHover` (`source: "key"`).
 - The overlay announces the selected day through a polite live region (for the keyboard and for taps, not for a mouse sweeping over the days).
 - With `prefers-reduced-motion` (or `reducedMotion: true`) there is no start-up and no flicker.
 

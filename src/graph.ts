@@ -484,7 +484,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       // the traced light is counted on a grid half as fine: enough rays in each cell to look like light and not like grain
       const LPX = PX / 2;
       let neonNeighbours: { j: number[]; m: number[] }[] = [];
-      let neonBlocks: { x: number; z: number; pan: number; t: number; cell: number; peak: number }[] = [];
+      let neonBlocks: { x: number; z: number; pan: number; t: number; cell: number; peak: number; lumi: number }[] = [];
       let stampCtl: { update(levels: ArrayLike<number>): void } | null = null;
       // (dark) sets how much of its lamps' light each pit has, from the blocks' levels (the pits' shading follows the neon, see `groundLayers`)
       let pitLight: ((levels: ArrayLike<number>) => void) | null = null;
@@ -595,6 +595,8 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
               : rodLight(src, hue, t, 1);
             // (how bright the rod is at its full level, as drawn: the selection lifts a quiet one to a minimum, see `focusOn`)
             const peak = Math.max(rod.r, rod.g, rod.b) * (cust ? 0.55 : 1);
+            // (and how bright it is to the eye: a blue rod has a third of the luminance of a green one at the same strongest channel, so a floor on the channel alone leaves a small blue block dull)
+            const lumi = lum(rod) * (cust ? 0.55 : 1);
             const col = dark ? rod.multiplyScalar(1 / Math.max(1e-4, rod.r, rod.g, rod.b)) : hue;
             // (`rodColor`: a white light adds to all three channels, so on the ground it washes out the colours around it: it lights the ground half as much)
             const whiteLight = cust && Math.max(hue.r, hue.g, hue.b) - Math.min(hue.r, hue.g, hue.b) < 0.15 * Math.max(hue.r, hue.g, hue.b) ? 0.5 : 1;
@@ -604,7 +606,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
             const near = dark ? CAUSTIC_NEAR : SUN_NEAR;
             const far = dark ? CAUSTIC_FAR : SUN_FAR;
             neonBlocks.push({ x, z, // (the camera looks along -z, so the world's +x is on the LEFT of the screen: the stereo place is the other way round)
-            pan: 1 - (x / width) * 2, t, cell: i, peak });
+            pan: 1 - (x / width) * 2, t, cell: i, peak, lumi });
             glass.push({
               c: [x, y0 + hy, z],
               h: [0.46, hy, 0.46],
@@ -1849,6 +1851,8 @@ void main(){
       const FOCUS_ON = 1.7;
       /** (dark) the least the brightest channel of a selected rod reaches (a rod's own full level is 0.5 for a quiet day to 3 for the busiest), so that a small block selected glows as remarkably as a big one; and the most it is lifted for it. */
       const FOCUS_MIN_PEAK = 2.4;
+      /** (dark) the least the luminance of a selected rod reaches, whatever its hue and its layer: a blue one needs a bigger lift than a green one to look as bright. */
+      const FOCUS_MIN_LUM = 1.2;
       const FOCUS_MAX_GAIN = 14;
       const FOCUS_OFF = 0.34;
       /** The power of the share of lit blocks that dims the backdrop (2: all dimmed to 0.34 leaves about an eighth). */
@@ -1931,7 +1935,7 @@ void main(){
         window.clearTimeout(focusTimer);
         if (!focusCtl || building) return;
         focusTimer = window.setTimeout(() => {
-          for (let i = 0; i < focusTo.length; i++) focusTo[i] = cell < 0 ? 1 : neonBlocks[i]!.cell === cell ? Math.min(FOCUS_MAX_GAIN, Math.max(FOCUS_ON, FOCUS_MIN_PEAK / Math.max(neonBlocks[i]!.peak, 1e-3))) : ghosts.includes(neonBlocks[i]!.cell) ? GHOST : FOCUS_OFF;
+          for (let i = 0; i < focusTo.length; i++) focusTo[i] = cell < 0 ? 1 : neonBlocks[i]!.cell === cell ? Math.min(FOCUS_MAX_GAIN, Math.max(FOCUS_ON, FOCUS_MIN_PEAK / Math.max(neonBlocks[i]!.peak, 1e-3), FOCUS_MIN_LUM / Math.max(neonBlocks[i]!.lumi, 1e-3))) : ghosts.includes(neonBlocks[i]!.cell) ? GHOST : FOCUS_OFF;
           focusMoving = true;
           animate();
         }, cell < 0 ? 140 : 70);

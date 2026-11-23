@@ -50,7 +50,7 @@ const options = (): GraphOptions => ({
   onLit: (lit) => (status.textContent = lit ? "lit" : "starting up…"),
   onHover: (info) => {
     if (!info) return void (card.style.opacity = "0");
-    card.textContent = `${info.date}: ${info.top} commits, ${info.bottom} h`;
+    card.textContent = `${info.date}: ${info.top} commits, ${info.bottom} h${info.behind ? ` · ${info.behind.index + 1}/${info.behind.count}` : ""}`;
     card.style.left = `${info.x}px`;
     card.style.top = `${info.y}px`;
     card.style.opacity = "1";

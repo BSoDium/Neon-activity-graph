@@ -172,6 +172,11 @@ The [demo](https://neon.bsodium.fr/) has a few presets (Technicolor, Ice, Sunset
 
 ## Cutaway
 
+<p align="center">
+  <img alt="Light theme, a day behind a stack of five: cutaway off (left) and on (right)" src="docs/cutaway-light.jpg" width="49%" />
+  <img alt="Dark theme, the same day: cutaway off (left) and on (right)" src="docs/cutaway-dark.jpg" width="49%" />
+</p>
+
 Days stand behind one another from the camera, so the selected one is often hidden. With `cutaway` (on by default) the blocks that are nearer the camera than the selected day, and within a soft circle (a smoothstep) round its centre on screen, are dropped from the picture: per fragment, in the blocks' own shaders, with a threshold spread over the accumulated samples so that it converges to a smooth fade. The rest of the picture is untouched outside the circle, and the ground and shadows stay. It eases in and out (about 90 ms constant), and a change of selection crosses over (the old circle fades out while the new one fades in), so sweeping the pointer does not pop. It runs only while the selection changes: nothing is redrawn at rest. In the dark theme it works with the existing glow (the selected day brighter, the rest dimmer), which it complements: the glow says *which* day, the cutaway lets it be seen. With reduced motion it switches without easing. Pass `cutaway: false` to turn it off. The pure maths (`cutFade`, `circleFalloff`, `inFront`, `resolveCutaway`) is exported.
 
 ## Sound

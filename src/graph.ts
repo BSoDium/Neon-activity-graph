@@ -250,9 +250,18 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         uCutStrength: { value: cutCfg?.strength ?? 0 },
       };
       // (a day fades by its alpha if its blocks are drawn with alpha (the glass), by its colour if they are lights drawn additively; `mat.transparent` is set for the first, once, as it changes the program)
+      // (a faded block is still in the depth buffer unless it stops writing it: what is drawn after the glass (the ground's light, the shadows) would be cut out behind it, as black; so while any day is faded the glass writes no depth, and at rest it does, as before)
+      const cutGlass = new Set<import("three").Material>();
+      const cutDepth = () => {
+        const faded = cutFade.some((v) => v > 0);
+        for (const m of cutGlass) m.depthWrite = !faded;
+      };
       const cutPatch = (mat: import("three").Material, mode: "alpha" | "add" = "alpha") => {
         if (!cutCfg) return;
-        if (mode === "alpha") mat.transparent = true;
+        if (mode === "alpha") {
+          mat.transparent = true;
+          cutGlass.add(mat);
+        }
         const base = mat.customProgramCacheKey();
         const prev = mat.onBeforeCompile;
         mat.onBeforeCompile = (shader, r) => {
@@ -1827,6 +1836,7 @@ void main(){
         cutLast = now;
         const moving = stepFades(cutFade, cutWanted, dt);
         cutTex.needsUpdate = true;
+        cutDepth();
         // (each step is drawn from a few samples at once, from nothing)
         const k = lite ? 2 : 4;
         cancelAnimationFrame(raf);
@@ -1862,6 +1872,7 @@ void main(){
         cutWanted = new Set();
         cutFade.fill(0);
         cutTex.needsUpdate = true;
+        cutDepth();
       };
       const prepareNeon = (skipStartup = false) => {
         cutReset();

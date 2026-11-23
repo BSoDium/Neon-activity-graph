@@ -11,12 +11,12 @@
       :root[data-theme="light"] { color-scheme: light; --bg: #f6f6f4; --fg: #15151a; }
       :root[data-theme="dark"] { color-scheme: dark; --bg: #0b0b0e; --fg: #ececf1; }
       body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
-      main { max-width: 1280px; margin: 0 auto; padding: 24px; }
+      main { max-width: 1800px; margin: 0 auto; padding: 24px; }
       h1 { font-size: 18px; font-weight: 600; margin: 0 0 16px; }
       .controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin-bottom: 16px; }
       label { display: inline-flex; gap: 6px; align-items: center; }
       #graph { position: relative; width: 100%; aspect-ratio: 3.97 / 1; }
-      #graph.narrow { aspect-ratio: 0.8; max-width: 420px; }
+      #graph.narrow { aspect-ratio: 0.8; width: min(100%, calc((100vh - 150px) * 0.8)); margin: 0 auto; }
       #card { position: absolute; pointer-events: none; transform: translate(-50%, calc(-100% - 12px)); padding: 6px 10px; border-radius: 8px; background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(10px); box-shadow: 0 4px 24px #0004; opacity: 0; transition: opacity .15s; white-space: nowrap; z-index: 2; }
       #status { opacity: .6; margin-top: 8px; }
     </style>

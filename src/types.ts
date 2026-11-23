@@ -133,8 +133,8 @@ export interface GraphOptions {
   maxPixelRatio?: number;
   /** The most pixels the picture is rendered at (default 8 million: the render is scaled down on a very large container). */
   maxPixels?: number;
-  /** Development helpers: `metrics` writes `data-*` timings on the container and logs the ground light's cost, `wireframe` draws the glass as a cage, `orbit` (TEMPORARY, to be removed: right-drag or alt-drag turns the camera round the scene), `noGlassGround` (dark) hides the ground's light from the glass (it sees a dark floor), `neonHold` holds the picture half on, half off (a number between 0 and 1: the off half at that level). */
-  debug?: { metrics?: boolean; wireframe?: boolean; neonHold?: boolean | number; noGlassGround?: boolean; orbit?: boolean };
+  /** Development helpers: `metrics` writes `data-*` timings on the container and logs the ground light's cost, `wireframe` draws the glass as a cage, `orbit` (TEMPORARY, to be removed: right-drag or alt-drag turns the camera round the scene), `glassGround` (dark, 0 to 1, default 1) scales the ground's light the glass shows, `noGlassGround` (dark) hides the ground's light from the glass (it sees a dark floor), `neonHold` holds the picture half on, half off (a number between 0 and 1: the off half at that level). */
+  debug?: { metrics?: boolean; wireframe?: boolean; neonHold?: boolean | number; noGlassGround?: boolean; orbit?: boolean; glassGround?: number };
 }
 
 /** Where the blocks are on the screen, in CSS pixels of the container (not the box: the isometric view leaves empty ground at the corners). */

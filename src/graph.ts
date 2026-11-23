@@ -272,6 +272,8 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, blending: THREE.AdditiveBlending, depthWrite: false });
       /** (dark) how much of the ground's light the glass shows, 1 at rest, lower when the lights are dimmed (see `applyLevels`): shared with the backdrop's shader. */
       const backdropDim = { value: 1 };
+      /** (dark) how much of the ground's light the glass shows, as a share (development: `debug.glassGround`; `noGlassGround` is 0). */
+      const groundK = () => (dbg.noGlassGround ? 0 : Math.min(1, Math.max(0, dbg.glassGround ?? 1)));
       /** GLSL: the light seen behind, `g` (linear), scaled and then capped softly on its brightest channel, so a strong hue is not overexposed whatever the palette: its colour is kept, only its level is compressed. */
       const softSeen = `vec3 softSeen(vec3 g) { float m = max(g.r, max(g.g, g.b)); if (m < 1e-6) return g; float k = ${DARK_BACKDROP_CAP.toFixed(3)}; return g * (k * tanh(min(m * ${DARK_BACKDROP_GAIN.toFixed(3)} / k, 12.0)) / m); }`;
       // how much each rod gives out, 0 to 1, one number per block, read by the rod's vertices (`aBlock` is the block's number): the neon start-up changes them over time
@@ -1658,7 +1660,7 @@ void main(){
         // (the ground's light seen through the glass follows how lit the scene is, and more than in proportion: with every light dimmed it all but goes out)
         let lit = 0;
         for (let i = 0; i < n; i++) lit += Math.min(1, effective[i]!);
-        backdropDim.value = dbg.noGlassGround ? 0 : n > 0 ? (lit / n) ** BACKDROP_DIM_POWER : 1;
+        backdropDim.value = groundK() * (n > 0 ? (lit / n) ** BACKDROP_DIM_POWER : 1);
       };
       // (the hum of the selected neon follows its brightness, once the start-up is over and when the page may make sound)
       const hum = createHoverHum();
@@ -1772,7 +1774,7 @@ void main(){
         effective = new Float32Array(neonBlocks.length).fill(1);
         lastLevels = new Float32Array(neonBlocks.length).fill(1);
         idleLook = false;
-        backdropDim.value = dbg.noGlassGround ? 0 : 1;
+        backdropDim.value = groundK();
         if (focusCtl) applyLevels(lastLevels);
         if (!isDark() || !neonAllowed() || skipStartup || !stampCtl || neonBlocks.length === 0 || neonBlocks.length > MAX_LEVELS) return void ((humOk = true), onLit?.(true));
         const ctl = stampCtl;

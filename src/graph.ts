@@ -2032,6 +2032,39 @@ void main(){
       dom.addEventListener("pointermove", onMove);
       dom.addEventListener("pointerleave", onLeave);
       dom.addEventListener("pointerdown", onDown);
+      // TEMPORARY, development only (`debug.orbit`, to be removed before a release): right-drag (or alt-drag) turns the camera round the scene, to look at the lighting from other sides. The picture is fitted again at every step.
+      if (dbg.orbit) {
+        const d0 = new THREE.Vector3(...CAMERA_DIR).normalize();
+        let az = Math.atan2(d0.x, d0.z);
+        let el = Math.asin(d0.y);
+        let drag: { x: number; y: number } | null = null;
+        const place = () => {
+          const ce = Math.cos(el);
+          camera.position.set(centre.x + 900 * ce * Math.sin(az), centre.y + 900 * Math.sin(el), centre.z + 900 * ce * Math.cos(az));
+          camera.lookAt(centre);
+          camera.updateMatrixWorld();
+          fit();
+        };
+        dom.addEventListener("contextmenu", (e) => e.preventDefault());
+        dom.addEventListener("pointerdown", (e) => {
+          if (e.button !== 2 && !e.altKey) return;
+          drag = { x: e.clientX, y: e.clientY };
+          dom.setPointerCapture(e.pointerId);
+        });
+        dom.addEventListener("pointermove", (e) => {
+          if (!drag) return;
+          az -= (e.clientX - drag.x) * 0.006;
+          el = Math.min(1.5, Math.max(0.12, el + (e.clientY - drag.y) * 0.006));
+          drag = { x: e.clientX, y: e.clientY };
+          place();
+        });
+        const end = (e: PointerEvent) => {
+          if (drag) dom.releasePointerCapture(e.pointerId);
+          drag = null;
+        };
+        dom.addEventListener("pointerup", end);
+        dom.addEventListener("pointercancel", end);
+      }
       el.addEventListener("keydown", onKey);
       el.addEventListener("focus", onFocus);
       el.addEventListener("blur", onBlur);

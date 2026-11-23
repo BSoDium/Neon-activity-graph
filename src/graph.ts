@@ -239,6 +239,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         uCutFade: { value: cutTex },
         uCutStrength: { value: cutCfg?.strength ?? 0 },
         uCutSeed: { value: 0 },
+        uCutDot: { value: 0 },
       };
       const cutPatch = (mat: import("three").Material) => {
         if (!cutCfg) return;
@@ -283,6 +284,18 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       const LAYER_FILTER_PURITY = 0.72;
       /** (dark) how much of the light the neighbours give out the glass of a block glows with: inside a group of lamps no glass is dark, and an isolated block's is. */
       const NEIGHBOUR_GLOW = 0.22;
+      /** (dark) a dim block's glass: what is left of its own glow on its flat faces and what its rounded edges add to it (so it is dark, with its edges catching the light), and the same for the light of the blocks next to it. */
+      /** How quiet a day is (1: the quietest, 0: not at all) from its own level `t`: a smoothstep from 0.2 to 0.8. */
+      const dimStep = (t: number) => {
+        const x = Math.min(1, Math.max(0, (t - 0.2) / 0.6));
+        return x * x * (3 - 2 * x);
+      };
+      const DIM_FLAT = 0.2;
+      const DIM_EDGE = 1.6;
+      const NB_FLAT = 0.05;
+      const NB_EDGE = 3.2;
+      /** (dark) how much less of what is behind it a quiet day's glass shows (0 is the same as a lit one's). */
+      const DIM_SEE = 0.6;
       /** How much light behind a block it takes to light its glass most of the way (the share is `1 - e^-(light behind / this)`). */
       const BEHIND_SCALE = 1.6;
       /** How far the neighbours' light is tinted by the block's own colour, 0 to 1. */
@@ -976,6 +989,8 @@ void main() {
           shell.translate(x, y0 + h / 2, z);
           // dark: the glass is nearly clear (the light of its core shows through it); light: tinted by the level
           paint(shell, (dark ? new THREE.Color(0xffffff) : hue.clone().lerp(new THREE.Color(0xffffff), LIGHT_SHELL_WHITE).multiply(behindTint.get(sp) ?? new THREE.Color(1, 1, 1))).add(inc.clone().multiplyScalar(dark && sp.cust ? 0.35 : 0.08)), 0, dark);
+          // (how quiet the day is, by its OWN level, not the one the light of its neighbours lifts it to: what the glass's glow is confined to the edges for)
+          shell.setAttribute("aDim", new THREE.BufferAttribute(new Float32Array(shell.getAttribute("position").count).fill(1 - dimStep(t)), 1));
           shell.setAttribute("aCell", new THREE.BufferAttribute(new Float32Array(shell.getAttribute("position").count).fill(sp.cell), 1));
           shell.setAttribute("aBlock", new THREE.BufferAttribute(new Float32Array(shell.getAttribute("position").count).fill(blockIndex), 1));
           // (the light of the neighbours, for the glass to glow with: see `NEIGHBOUR_GLOW`; only where there are lamps BEHIND the glass as the camera sees it, and none against a dark background, or the glass would look opaque and washed out)
@@ -1130,13 +1145,13 @@ void main() {
               shader.uniforms.uFloorEm = { value: OFF_EMISSIVE / Math.max(mat.emissiveIntensity, 1e-4) };
               shader.uniforms.uFloorEnv = { value: mat.envMapIntensity > 0 ? OFF_ENV / mat.envMapIntensity : 0 };
               shader.vertexShader = shader.vertexShader
-                .replace("#include <common>", "#include <common>\nattribute float aBlock;\nattribute vec3 aInc;\nattribute vec3 aTint;\nvarying vec3 vInc;\nvarying vec3 vTint;\nuniform highp sampler2D uLevels;\nuniform float uFloorEm;\nuniform float uFloorEnv;\nvarying float vLevelEm;\nvarying float vLevelEnv;\nvarying float vOn;")
-                .replace("#include <begin_vertex>", "#include <begin_vertex>\n  vec2 lv = texelFetch(uLevels, ivec2(int(aBlock + 0.5), 0), 0).rg;\n  float own = max(lv.r, 0.3 * lv.g);\n  vOn = clamp(own, 0.0, 1.0);\n  vLevelEm = max(own, uFloorEm);\n  vLevelEnv = max(own, uFloorEnv);\n  vInc = aInc * lv.g * lv.g * lv.g;\n  vTint = aTint;");
+                .replace("#include <common>", "#include <common>\nattribute float aBlock;\nattribute vec3 aInc;\nattribute vec3 aTint;\nattribute float aDim;\nvarying float vDim;\nvarying vec3 vInc;\nvarying vec3 vTint;\nuniform highp sampler2D uLevels;\nuniform float uFloorEm;\nuniform float uFloorEnv;\nvarying float vLevelEm;\nvarying float vLevelEnv;\nvarying float vOn;\nvarying vec3 vObjN;")
+                .replace("#include <begin_vertex>", "#include <begin_vertex>\n  vObjN = normal;\n  vDim = aDim;\n  vec2 lv = texelFetch(uLevels, ivec2(int(aBlock + 0.5), 0), 0).rg;\n  float own = max(lv.r, 0.3 * lv.g);\n  vOn = clamp(own, 0.0, 1.0);\n  vLevelEm = max(own, uFloorEm);\n  vLevelEnv = max(own, uFloorEnv);\n  vInc = aInc * lv.g * lv.g * lv.g;\n  vTint = aTint;");
               shader.fragmentShader = shader.fragmentShader
-                .replace("#include <common>", "#include <common>\nvarying float vLevelEm;\nvarying float vLevelEnv;\nvarying float vOn;\nvarying vec3 vInc;\nvarying vec3 vTint;")
-                .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  // (right off, the glass glows the same cool grey whatever its source; as soon as there is a light in it, its own colour, darker the dimmer the light: a dimmed block is a tinted, darker one, not a grey one)\n  float offGrey = 1.0 - smoothstep(0.05, 0.6, vOn);\n  totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(dot(totalEmissiveRadiance, vec3(0.333))) * vec3(0.85, 0.95, 1.15), offGrey) * mix(pow(vLevelEm, 2.0), vLevelEm, offGrey);\n  vec3 nb = min(vInc * " + NEIGHBOUR_GLOW.toFixed(3) + ", vec3(0.1));\n  nb = max(vec3(0.0), mix(vec3(dot(nb, vec3(0.299, 0.587, 0.114))), nb, " + GLOW_SATURATION.toFixed(2) + "));\n  nb *= mix(vec3(1.0), vTint, smoothstep(0.05, 0.6, vOn) * mix(" + GLOW_TINT_FAINT.toFixed(3) + ", 1.0, smoothstep(0.02, 0.1, max(nb.r, max(nb.g, nb.b)))));\n  totalEmissiveRadiance += nb;")
+                .replace("#include <common>", "#include <common>\nvarying float vLevelEm;\nvarying float vLevelEnv;\nvarying float vOn;\nvarying float vDim;\nvarying vec3 vObjN;\nvarying vec3 vInc;\nvarying vec3 vTint;")
+                .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  // (right off, the glass glows the same cool grey whatever its source; as soon as there is a light in it, its own colour, darker the dimmer the light: a dimmed block is a tinted, darker one, not a grey one)\n  float offGrey = 1.0 - smoothstep(0.05, 0.6, vOn);\n  totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(dot(totalEmissiveRadiance, vec3(0.333))) * vec3(0.85, 0.95, 1.15), offGrey) * mix(pow(vLevelEm, 2.0), vLevelEm, offGrey);\n  // (a dim block is not a lit one: its glass does not glow all over, evenly, from the light of the blocks next to it, which would make it a milky, jelly-like cube; the light shows where light shows on glass, as streaks on its rounded edges, and its flat faces stay dark)\n  float edgeK = smoothstep(0.03, 0.4, 1.0 - max(abs(vObjN.x), max(abs(vObjN.y), abs(vObjN.z))));\n  float dimK = max(vDim, 1.0 - smoothstep(0.5, 0.95, vOn));\n  totalEmissiveRadiance *= mix(1.0, " + DIM_FLAT.toFixed(2) + " + " + DIM_EDGE.toFixed(2) + " * edgeK, dimK);\n  vec3 nb = min(vInc * " + NEIGHBOUR_GLOW.toFixed(3) + ", vec3(0.1));\n  nb = max(vec3(0.0), mix(vec3(dot(nb, vec3(0.299, 0.587, 0.114))), nb, " + GLOW_SATURATION.toFixed(2) + "));\n  nb *= mix(vec3(1.0), vTint, smoothstep(0.05, 0.6, vOn) * mix(" + GLOW_TINT_FAINT.toFixed(3) + ", 1.0, smoothstep(0.02, 0.1, max(nb.r, max(nb.g, nb.b)))));\n  nb *= mix(1.0, " + NB_FLAT.toFixed(2) + " + " + NB_EDGE.toFixed(2) + " * edgeK, dimK);\n  totalEmissiveRadiance += nb;")
                 // (the glass's tint is the light of its rod made visible: with the rod off the glass is clear)
-                .replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\n#ifdef USE_TRANSMISSION\n  material.attenuationColor = mix(vec3(1.0), material.attenuationColor, smoothstep(0.12, 0.9, vOn));\n#endif")
+                .replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\n#ifdef USE_TRANSMISSION\n  material.attenuationColor = mix(vec3(1.0), material.attenuationColor, smoothstep(0.12, 0.9, vOn));\n  // (a quiet day's glass does not show the lit ground and the lamps behind it as clearly as a lit one: it is a darker body, not a window onto the glow round it)\n  material.transmission *= 1.0 - " + DIM_SEE.toFixed(2) + " * vDim;\n#endif")
                 .replace("#include <lights_fragment_maps>", "#include <lights_fragment_maps>\n#if defined( RE_IndirectSpecular )\n  radiance *= vLevelEnv;\n#ifdef USE_CLEARCOAT\n  clearcoatRadiance *= vLevelEnv;\n#endif\n#endif\n#if defined( RE_IndirectDiffuse )\n  iblIrradiance *= vLevelEnv;\n#endif");
             };
             mat.customProgramCacheKey = () => "glass-levels";
@@ -1691,6 +1706,8 @@ void main(){
         const dt = neonAllowed() ? Math.min(100, now - cutLast) : 1e6;
         cutLast = now;
         const moving = stepFades(cutFade, cutWanted, dt);
+        // (the halftone's cell, in the pixels of the picture, which may be drawn at another ratio than the page's)
+        cutU.uCutDot.value = (cutCfg?.dot ?? 0) * (w / Math.max(1, el.clientWidth));
         cutTex.needsUpdate = true;
         // (each step is drawn from a few samples at once, from nothing: the thresholds of the fade are spread over the samples, so a lone one is a dither)
         const k = lite ? 2 : 4;

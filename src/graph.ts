@@ -240,6 +240,7 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
         uCutStrength: { value: cutCfg?.strength ?? 0 },
         uCutSeed: { value: 0 },
         uCutDot: { value: 0 },
+        uCutNoise: { value: cutCfg?.noise ?? 0 },
       };
       const cutPatch = (mat: import("three").Material) => {
         if (!cutCfg) return;
@@ -292,8 +293,10 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       };
       const DIM_FLAT = 0.2;
       const DIM_EDGE = 1.6;
-      const NB_FLAT = 0.05;
+      const NB_FLAT = 0.02;
       const NB_EDGE = 3.2;
+      /** (dark) how far even a lit block's own glow is confined to its edges (0: not at all, 1: as much as a quiet one's): its glass is not a lamp all over, the rod is. */
+      const LIT_FLAT_SHARE = 0.6;
       /** (dark) how much less of what is behind it a quiet day's glass shows (0 is the same as a lit one's). */
       const DIM_SEE = 0.6;
       /** How much light behind a block it takes to light its glass most of the way (the share is `1 - e^-(light behind / this)`). */
@@ -1149,7 +1152,7 @@ void main() {
                 .replace("#include <begin_vertex>", "#include <begin_vertex>\n  vObjN = normal;\n  vDim = aDim;\n  vec2 lv = texelFetch(uLevels, ivec2(int(aBlock + 0.5), 0), 0).rg;\n  float own = max(lv.r, 0.3 * lv.g);\n  vOn = clamp(own, 0.0, 1.0);\n  vLevelEm = max(own, uFloorEm);\n  vLevelEnv = max(own, uFloorEnv);\n  vInc = aInc * lv.g * lv.g * lv.g;\n  vTint = aTint;");
               shader.fragmentShader = shader.fragmentShader
                 .replace("#include <common>", "#include <common>\nvarying float vLevelEm;\nvarying float vLevelEnv;\nvarying float vOn;\nvarying float vDim;\nvarying vec3 vObjN;\nvarying vec3 vInc;\nvarying vec3 vTint;")
-                .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  // (right off, the glass glows the same cool grey whatever its source; as soon as there is a light in it, its own colour, darker the dimmer the light: a dimmed block is a tinted, darker one, not a grey one)\n  float offGrey = 1.0 - smoothstep(0.05, 0.6, vOn);\n  totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(dot(totalEmissiveRadiance, vec3(0.333))) * vec3(0.85, 0.95, 1.15), offGrey) * mix(pow(vLevelEm, 2.0), vLevelEm, offGrey);\n  // (a dim block is not a lit one: its glass does not glow all over, evenly, from the light of the blocks next to it, which would make it a milky, jelly-like cube; the light shows where light shows on glass, as streaks on its rounded edges, and its flat faces stay dark)\n  float edgeK = smoothstep(0.03, 0.4, 1.0 - max(abs(vObjN.x), max(abs(vObjN.y), abs(vObjN.z))));\n  float dimK = max(vDim, 1.0 - smoothstep(0.5, 0.95, vOn));\n  totalEmissiveRadiance *= mix(1.0, " + DIM_FLAT.toFixed(2) + " + " + DIM_EDGE.toFixed(2) + " * edgeK, dimK);\n  vec3 nb = min(vInc * " + NEIGHBOUR_GLOW.toFixed(3) + ", vec3(0.1));\n  nb = max(vec3(0.0), mix(vec3(dot(nb, vec3(0.299, 0.587, 0.114))), nb, " + GLOW_SATURATION.toFixed(2) + "));\n  nb *= mix(vec3(1.0), vTint, smoothstep(0.05, 0.6, vOn) * mix(" + GLOW_TINT_FAINT.toFixed(3) + ", 1.0, smoothstep(0.02, 0.1, max(nb.r, max(nb.g, nb.b)))));\n  nb *= mix(1.0, " + NB_FLAT.toFixed(2) + " + " + NB_EDGE.toFixed(2) + " * edgeK, dimK);\n  totalEmissiveRadiance += nb;")
+                .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n  // (right off, the glass glows the same cool grey whatever its source; as soon as there is a light in it, its own colour, darker the dimmer the light: a dimmed block is a tinted, darker one, not a grey one)\n  float offGrey = 1.0 - smoothstep(0.05, 0.6, vOn);\n  totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(dot(totalEmissiveRadiance, vec3(0.333))) * vec3(0.85, 0.95, 1.15), offGrey) * mix(pow(vLevelEm, 2.0), vLevelEm, offGrey);\n  // (a dim block is not a lit one: its glass does not glow all over, evenly, from the light of the blocks next to it, which would make it a milky, jelly-like cube; the light shows where light shows on glass, as streaks on its rounded edges, and its flat faces stay dark)\n  float edgeK = smoothstep(0.03, 0.4, 1.0 - max(abs(vObjN.x), max(abs(vObjN.y), abs(vObjN.z))));\n  float dimK = max(vDim, 1.0 - smoothstep(0.5, 0.95, vOn));\n  totalEmissiveRadiance *= mix(1.0, " + DIM_FLAT.toFixed(2) + " + " + DIM_EDGE.toFixed(2) + " * edgeK, max(dimK, " + LIT_FLAT_SHARE.toFixed(2) + "));\n  vec3 nb = min(vInc * " + NEIGHBOUR_GLOW.toFixed(3) + ", vec3(0.1));\n  nb = max(vec3(0.0), mix(vec3(dot(nb, vec3(0.299, 0.587, 0.114))), nb, " + GLOW_SATURATION.toFixed(2) + "));\n  nb *= mix(vec3(1.0), vTint, smoothstep(0.05, 0.6, vOn) * mix(" + GLOW_TINT_FAINT.toFixed(3) + ", 1.0, smoothstep(0.02, 0.1, max(nb.r, max(nb.g, nb.b)))));\n  nb *= " + NB_FLAT.toFixed(2) + " + " + NB_EDGE.toFixed(2) + " * edgeK;\n  totalEmissiveRadiance += nb;")
                 // (the glass's tint is the light of its rod made visible: with the rod off the glass is clear)
                 .replace("#include <lights_physical_fragment>", "#include <lights_physical_fragment>\n#ifdef USE_TRANSMISSION\n  material.attenuationColor = mix(vec3(1.0), material.attenuationColor, smoothstep(0.12, 0.9, vOn));\n  // (a quiet day's glass does not show the lit ground and the lamps behind it as clearly as a lit one: it is a darker body, not a window onto the glow round it)\n  material.transmission *= 1.0 - " + DIM_SEE.toFixed(2) + " * vDim;\n#endif")
                 .replace("#include <lights_fragment_maps>", "#include <lights_fragment_maps>\n#if defined( RE_IndirectSpecular )\n  radiance *= vLevelEnv;\n#ifdef USE_CLEARCOAT\n  clearcoatRadiance *= vLevelEnv;\n#endif\n#endif\n#if defined( RE_IndirectDiffuse )\n  iblIrradiance *= vLevelEnv;\n#endif");
@@ -1556,6 +1559,7 @@ void main(){
           // (development only: how long a frame takes, the GPU included: `finish` waits for it)
           renderer.getContext().finish();
           frames.push(performance.now() - f0);
+          el.dataset.frameLast = (performance.now() - f0).toFixed(2);
           el.dataset.frameMs = (frames.reduce((x, y) => x + y, 0) / frames.length).toFixed(1);
         }
         if (n < samplesCap) raf = requestAnimationFrame(frame);

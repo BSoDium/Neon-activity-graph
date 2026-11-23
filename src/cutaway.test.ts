@@ -78,9 +78,10 @@ describe("resolveCutaway", () => {
     expect(resolveCutaway(true)).toEqual(CUTAWAY_DEFAULTS);
     expect(resolveCutaway(false)).toBeNull();
     expect(resolveCutaway({ strength: 0 })).toBeNull();
-    expect(resolveCutaway({ strength: 3 })).toEqual({ strength: 1, dot: CUTAWAY_DEFAULTS.dot });
-    expect(resolveCutaway({ dot: 0 })).toEqual({ strength: CUTAWAY_DEFAULTS.strength, dot: 0 });
+    expect(resolveCutaway({ strength: 3 })).toEqual({ strength: 1, dot: CUTAWAY_DEFAULTS.dot, noise: CUTAWAY_DEFAULTS.noise });
+    expect(resolveCutaway({ dot: 0 })).toEqual({ strength: CUTAWAY_DEFAULTS.strength, dot: 0, noise: CUTAWAY_DEFAULTS.noise });
     expect(resolveCutaway({ dot: 99 })!.dot).toBe(32);
+    expect(resolveCutaway({ noise: 5 })!.noise).toBe(1);
   });
 });
 

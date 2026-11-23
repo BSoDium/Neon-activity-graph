@@ -84,6 +84,7 @@ const options = (): GraphOptions => ({
   overlay: $<HTMLSelectElement>("outline").value === "off" ? false : { card: false, outlineColor: $<HTMLSelectElement>("outline").value as "auto" | "cased" | "text" },
   colors: PALETTES[$<HTMLSelectElement>("palette").value],
   cutaway: $<HTMLInputElement>("cutaway").checked ? { strength: Number($<HTMLInputElement>("cut-strength").value), dot: Number($<HTMLInputElement>("cut-dot").value), noise: Number($<HTMLInputElement>("cut-noise").value) } : false,
+  reducedMotion: location.search.includes("still") ? true : "auto",
   debug: location.search.includes("metrics") ? { metrics: true } : undefined,
   rodColor: $<HTMLInputElement>("lights").checked ? lights : undefined,
   background: (theme) => getComputedStyle(document.body).backgroundColor || (theme === "dark" ? "#0b0b0e" : "#f6f6f4"),

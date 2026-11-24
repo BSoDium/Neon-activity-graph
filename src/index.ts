@@ -1,4 +1,5 @@
 import { mountScene, type SceneHandle } from "./graph";
+import { createAttribution, resolveAttribution, type Attribution } from "./attribution";
 import { createHoverOverlay, type HoverOverlay } from "./overlay";
 import { mountPlaceholder } from "./placeholder";
 import { cling } from "./sound";
@@ -29,6 +30,8 @@ export function createActivityGraph(container: HTMLElement, options: GraphOption
   const isDarkTheme = (): boolean | undefined => (state.theme === "auto" ? (typeof matchMedia === "undefined" ? undefined : matchMedia("(prefers-color-scheme: dark)").matches) : state.theme === "dark");
   const holder = options.placeholder === false ? null : mountPlaceholder(container, { weeks: options.weeks, strips: options.strips, shifts, tallest, dark: isDarkTheme() });
   const overlay: HoverOverlay | null = options.overlay ? createHoverOverlay(container, options.overlay === true ? {} : options.overlay, () => ({ top: opts.data?.top, bottom: opts.data?.bottom })) : null;
+  const attributionOptions = resolveAttribution(options.attribution);
+  const attribution: Attribution | null = attributionOptions ? createAttribution(container, attributionOptions) : null;
   // (what the scene is given: the caller's callbacks, plus the place-holder's fade and the overlay's updates)
   const wrap = (o: GraphOptions): GraphOptions => ({
     ...o,
@@ -117,6 +120,7 @@ export function createActivityGraph(container: HTMLElement, options: GraphOption
       predictObserver?.disconnect();
       holder?.remove();
       overlay?.destroy();
+      attribution?.destroy();
     },
   };
 }
@@ -124,6 +128,8 @@ export function createActivityGraph(container: HTMLElement, options: GraphOption
 export * from "./pure";
 export { createHoverOverlay } from "./overlay";
 export type { HoverOverlay, OverlayOptions } from "./overlay";
+export { createAttribution, resolveAttribution, ATTRIBUTION_HREF } from "./attribution";
+export type { AttributionOptions } from "./attribution";
 export { cardPosition, formatDay, outlinePath } from "./overlay-math";
 export { resolveCutaway, inTheWay } from "./cutaway";
 export type { CutawayOptions } from "./cutaway";

@@ -1,5 +1,6 @@
 import type { CutawayOptions } from "./cutaway";
 import type { Cell, Matrix } from "./layout";
+import type { AttributionOptions } from "./attribution";
 import type { OverlayOptions } from "./overlay";
 
 /** One day of one layer. `date` is an ISO day (`2026-11-19`), read in UTC. */
@@ -124,6 +125,8 @@ export interface GraphOptions {
   placeholder?: boolean;
   /** The day's outline and card, drawn over the graph (default off): `true`, or options. See `createHoverOverlay`. */
   overlay?: boolean | OverlayOptions;
+  /** A small "Powered by Neon" link in the bottom right corner of the box (default off): `true`, or `{ text?, href?, target? }`. Styled through `--nag-attribution-*`, see `AttributionOptions`. */
+  attribution?: boolean | AttributionOptions;
   /**
    * The cutaway (default on): while a day is selected, the days that stand in its way (those that hide it from the camera) fade away, whole and eased, so it can be seen through the days piled up in front. `strength` is the share taken away
    * (0 to 1, default 1: they fade out completely; less leaves them faint). `false` turns it off. Costs a texture read a vertex while nothing is selected.

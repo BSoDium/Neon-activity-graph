@@ -22,9 +22,10 @@ describe("resolveAttribution", () => {
 });
 
 describe("attributionCss", () => {
-  it("styles the link, its bold name, its arrow, hover and focus, for the selector it is given", () => {
+  it("styles the link, its inner box, bold name, arrow, hover and focus, for the selector it is given, and sets nothing of the link's own display", () => {
     const css = attributionCss("#x");
-    for (const rule of ["#x{", "#x b{", "#x svg{", "#x:hover,#x:focus-visible{", "#x:hover span,#x:focus-visible span{text-decoration:underline", "#x:focus-visible{outline"]) expect(css).toContain(rule);
+    for (const rule of ["#x{border-radius", "#x .nag-in{display:inline-flex", "#x b{", "#x svg{", "#x:hover,#x:focus-visible{", "#x:hover .nag-w,#x:focus-visible .nag-w{text-decoration:underline", "#x:focus-visible{outline"]) expect(css).toContain(rule);
     expect(css).toContain("--nag-attribution-fg");
+    expect(css.split("\n")[0]).not.toMatch(/display|position|margin/);
   });
 });

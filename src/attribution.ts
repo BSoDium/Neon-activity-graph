@@ -32,11 +32,13 @@ export function resolveAttribution(option: boolean | AttributionOptions | undefi
 
 /** The link's styles, for the selector that picks it out (shared by the corner link, `createAttribution`, and the standalone `NeonAttribution` of the React entry). */
 export function attributionCss(sel: string): string {
-  return `${sel}{display:inline-flex;align-items:center;gap:.25em;padding:4px 3px;border-radius:4px;font:500 11px/1 system-ui,sans-serif;letter-spacing:.04em;text-decoration:none;color:var(--nag-attribution-fg,color-mix(in srgb,currentColor 52%,transparent));transition:color .2s}
+  // (nothing of the link's own box is set: its display, margins and position are the page's, a class of its own (`hidden`, `absolute`...) always applies. The box and the gap are an inner element's.)
+  return `${sel}{border-radius:4px;font:500 var(--nag-attribution-size,11px)/1 system-ui,sans-serif;letter-spacing:.04em;text-decoration:none;color:var(--nag-attribution-fg,color-mix(in srgb,currentColor 52%,transparent));transition:color .2s}
+${sel} .nag-in{display:inline-flex;align-items:center;gap:.25em;padding:4px 3px}
 ${sel} b{font-weight:700}
 ${sel} svg{width:1.1em;height:1.1em;flex:none}
 ${sel}:hover,${sel}:focus-visible{color:var(--nag-attribution-fg-hover,currentColor)}
-${sel}:hover span,${sel}:focus-visible span{text-decoration:underline;text-underline-offset:3px}
+${sel}:hover .nag-w,${sel}:focus-visible .nag-w{text-decoration:underline;text-underline-offset:3px}
 ${sel}:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 @media (prefers-reduced-motion:reduce){${sel}{transition:none}}`;
 }
@@ -65,8 +67,11 @@ export function createAttribution(container: HTMLElement, options: Required<Attr
   a.style.cssText = "position:absolute;right:var(--nag-attribution-right,10px);bottom:var(--nag-attribution-bottom,min(8px,max(0px,calc(100% - var(--nag-content-bottom,0px) - 22px))));z-index:3";
   const style = document.createElement("style");
   style.textContent = attributionCss(`#${id}`);
-  // (the words, with the name in bold when they are the default ones, then an arrow up and to the right: it is a link to another page)
+  // (the words, with the name in bold when they are the default ones, then an arrow up and to the right: it is a link to another page; in an inner box, see `attributionCss`)
+  const inner = document.createElement("span");
+  inner.className = "nag-in";
   const words = document.createElement("span");
+  words.className = "nag-w";
   if (options.text === ATTRIBUTION_TEXT) {
     const b = document.createElement("b");
     b.textContent = "Neon";
@@ -81,7 +86,8 @@ export function createAttribution(container: HTMLElement, options: Required<Attr
     path.setAttribute("d", d);
     arrow.append(path);
   }
-  a.append(words, arrow);
+  inner.append(words, arrow);
+  a.append(inner);
   container.append(style, a);
   return {
     destroy: () => {

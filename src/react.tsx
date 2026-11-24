@@ -105,20 +105,22 @@ export function NeonAttribution({ className, style, ...options }: NeonAttributio
     <>
       <style>{attributionCss(`#${id}`)}</style>
       <a id={id} className={className} style={style} href={o.href} target={o.target} rel={o.target === "_blank" ? "noopener" : undefined} aria-label={o.text}>
-        <span>
-          {o.text === ATTRIBUTION_TEXT ? (
-            <>
-              Powered by <b>Neon</b>
-            </>
-          ) : (
-            o.text
-          )}
+        <span className="nag-in">
+          <span className="nag-w">
+            {o.text === ATTRIBUTION_TEXT ? (
+              <>
+                Powered by <b>Neon</b>
+              </>
+            ) : (
+              o.text
+            )}
+          </span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={ATTRIBUTION_ARROW.strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {ATTRIBUTION_ARROW.paths.map((d) => (
+              <path key={d} d={d} />
+            ))}
+          </svg>
         </span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={ATTRIBUTION_ARROW.strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          {ATTRIBUTION_ARROW.paths.map((d) => (
-            <path key={d} d={d} />
-          ))}
-        </svg>
       </a>
     </>
   );

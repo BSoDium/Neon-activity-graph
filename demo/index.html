@@ -22,14 +22,14 @@
         color-scheme: light dark;
         --bg: #f1ece1; --fg: #17150f; --muted: color-mix(in srgb, var(--fg) 74%, var(--bg));
         --top: #0a8f2c; --bottom: #1a6fe0;
-        --red: #ff3b30; --yellow: #ffd60a; --cyan: #00c8ff; --magenta: #ff2d9b;
+        --err: #c4145f; --ok-bg: #0b5f2a; --ok-text: #0a4d22; --busy: #0b6a94; --busy-text: #0a5273; --bad-bg: #a3104f; --bad-text: #86103f; --red: #ff3b30; --yellow: #ffd60a; --cyan: #00c8ff; --magenta: #ff2d9b;
         --display: "Shrikhand", "Shrikhand Fallback", "Shrikhand Fallback 2", Georgia, serif;
         --sans: "Bricolage", system-ui, -apple-system, "Segoe UI", sans-serif;
         --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
       }
-      @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #08080b; --fg: #f4f1ea; --top: #3ddc6a; --bottom: #5aa9ff; } }
-      :root[data-theme="dark"] { color-scheme: dark; --bg: #08080b; --fg: #f4f1ea; --top: #3ddc6a; --bottom: #5aa9ff; }
-      :root[data-theme="light"] { color-scheme: light; --bg: #f1ece1; --fg: #17150f; --top: #0a8f2c; --bottom: #1a6fe0; }
+      @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --err: #ff6fb5; --ok-bg: #3ddc6a; --ok-text: #5be88a; --busy: #5ac8fa; --busy-text: #7fd8ff; --bad-bg: #ff6fb5; --bad-text: #ff8fc4; --bg: #08080b; --fg: #f4f1ea; --top: #3ddc6a; --bottom: #5aa9ff; } }
+      :root[data-theme="dark"] { color-scheme: dark; --err: #ff6fb5; --ok-bg: #3ddc6a; --ok-text: #5be88a; --busy: #5ac8fa; --busy-text: #7fd8ff; --bad-bg: #ff6fb5; --bad-text: #ff8fc4; --bg: #08080b; --fg: #f4f1ea; --top: #3ddc6a; --bottom: #5aa9ff; }
+      :root[data-theme="light"] { color-scheme: light; --err: #c4145f; --ok-bg: #0b5f2a; --ok-text: #0a4d22; --busy: #0b6a94; --busy-text: #0a5273; --bad-bg: #a3104f; --bad-text: #86103f; --bg: #f1ece1; --fg: #17150f; --top: #0a8f2c; --bottom: #1a6fe0; }
       * { box-sizing: border-box; }
       /* (nothing may make the page wider than the screen, whatever a phone's browser does with `clip`: the older ones know only `hidden`; and the graph's own box, which runs to the screen's edges on a phone, and the day card are cut at them) */
       html { overflow-x: hidden; overflow-x: clip; max-width: 100%; }
@@ -49,8 +49,10 @@
          --nag-content-left (px) on the graph box at once, from the geometry (the scene's own value replaces it), and main.ts copies it to the stage; the caption is hidden for the one frame before that, then fades in: it never moves. */
       #stage { position: relative; width: 100%; container-type: inline-size; }
       #graph { position: relative; width: 100%; aspect-ratio: 2.7 / 1; --nag-top: var(--top); --nag-bottom: var(--bottom); }
-      .caption { position: absolute; left: var(--nag-content-left, 0px); bottom: -3.4cqi; z-index: 1; pointer-events: none; display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 0.7em; width: 34cqi; padding: 1.4em 0 0 0; opacity: 0; transition: opacity 0.5s ease; }
+      .caption { position: absolute; left: var(--nag-content-left, 0px); bottom: -3.4cqi; z-index: 1; pointer-events: none; display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 0.8em; width: 34cqi; padding: 1.4em 0 0 0; opacity: 0; transition: opacity 0.5s ease; }
       .caption.ready { opacity: 1; }
+      /* (column-reverse: the first is at the bottom. Bottom to top: the title, the pitch, the theme, the legend, the lookup; a phone reads top to bottom: lookup, title, pitch, legend, theme) */
+      .caption h1 { order: 1; } .caption .about { order: 2; } .caption .legend { order: 4; } .caption .who { order: 5; }
       .caption > * { pointer-events: auto; user-select: text; -webkit-user-select: text; }
       .caption::before { content: ""; position: absolute; inset: -2em -6em -2em -3em; z-index: -1; background: radial-gradient(ellipse 50% 50% at 50% 50%, color-mix(in srgb, var(--bg) 84%, transparent) 0%, color-mix(in srgb, var(--bg) 72%, transparent) 55%, transparent 100%); }
 
@@ -68,22 +70,19 @@
       @media (prefers-reduced-motion: reduce) { h1::after { animation: none; } }
       .about { margin: 0; color: var(--muted); font-size: clamp(14px, 1.2cqi, 19px); line-height: 1.45; max-width: 36em; font-weight: 420; }
       .about .hl { font-weight: 720; color: var(--fg); }
-      .about .pick { display: flex; align-items: center; gap: 0.2em 0.35em; margin-top: 0.7em; font-size: 0.92em; }
-      /* (the choice of theme: the three words as they are, the chosen one on a highlight in the text's colour with its letters in the page's, so that it reads as the chosen one and not as a link) */
-      .about .segs { display: contents; }
-      .about .theme { pointer-events: auto; font: inherit; font-weight: 600; line-height: 1.25; color: var(--fg); background: none; border: 0; border-radius: 2px; margin: 0; padding: 0.1em 0.45em; cursor: pointer; }
-      .about .theme[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
-      .about .theme:not([aria-pressed="true"]):hover { background: color-mix(in srgb, var(--fg) 16%, transparent); }
+      /* (the choice of theme, in the top right corner of the stage, opposite the title: the three words as they are, the chosen one on a highlight in the text's colour with its letters in the page's, so that it reads as the chosen one and not as a link; on a phone it is the first row of the page) */
+      .themes { position: absolute; top: -6px; right: var(--nag-inset-right, 0px); z-index: 3; display: flex; align-items: center; gap: 2px; font: 600 clamp(14px, 1.1cqi, 17px) / 1.25 var(--sans); }
+      .themes .theme { font: inherit; line-height: 1.25; color: var(--fg); background: none; border: 0; border-radius: 3px; margin: 0; padding: 0.4em 0.75em; cursor: pointer; }
+      .themes .theme[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+      .themes .theme:not([aria-pressed="true"]):hover { background: color-mix(in srgb, var(--fg) 16%, transparent); }
       .about .lib { font: 400 0.9em var(--mono); letter-spacing: 0; color: var(--fg); }
-      .about .for { display: block; margin-top: 0.6em; font-size: 0.92em; color: var(--muted); }
-      .about a { pointer-events: auto; color: var(--fg); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-color: var(--cyan); }
-      .about a:hover { text-decoration-color: var(--magenta); }
       /* (the state of the data at the bottom left, the links at the bottom right; where they would not fit on a line (a phone, a portrait screen) they are one block, one above the other, on the same side: see below) */
       #live { position: fixed; left: max(14px, env(safe-area-inset-left)); bottom: max(14px, env(safe-area-inset-bottom)); z-index: 8; margin: 0; padding: 0; color: var(--muted); font: 400 10.5px / 1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; pointer-events: none; }
       .sub-unused { margin: 0; color: var(--muted); font: 400 clamp(10.5px, 0.8cqi, 13px) / 1.4 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
-      .legend { display: flex; flex-direction: column; gap: 0.35em; margin: 0.3em 0 0.9em; font: 400 clamp(11px, 0.85cqi, 14px) / 1.3 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
+      .legend { display: flex; flex-wrap: wrap; gap: 0.3em 1.4em; margin: 0; font: 400 clamp(11px, 0.85cqi, 14px) / 1.3 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; }
       .legend span { display: inline-flex; align-items: center; gap: 8px; }
       .legend i { width: 0.8em; height: 0.8em; border-radius: 3px; background: currentColor; box-shadow: 0 0 0.45em color-mix(in srgb, currentColor 30%, transparent); }
+      .legend span { transition: opacity 0.3s; } .legend .off { opacity: 0.4; } .legend .off b { text-decoration: line-through; text-decoration-thickness: 1px; }
       .legend .g { color: var(--top); } .legend .b { color: var(--bottom); } .legend b { color: var(--fg); font-weight: 400; }
 
       /* The corner: a few quiet links, and the two small panels they open. */
@@ -111,21 +110,83 @@
       .presets button[aria-pressed="true"] { border-color: var(--fg); }
       .presets i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: linear-gradient(135deg, var(--a) 50%, var(--b) 50%); }
 
+
+      /* The lookup, the one thing here to act on: a ruled-off block. A label (what it does) and the way back to the demo data, two optional fields of one shape (a mono prefix says where the name is looked up; at least one is needed), then
+         the Load button (the page's own highlight: ink with paper letters) and a line of text. Each field carries its own state in `data-state` (idle, loading, done, failed): a mark at its right end, and the reason under it when it failed.
+         Hidden until a proxy is configured (see main.ts). */
+      .who { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; width: min(100%, 25rem); min-width: 0; margin: 0 0 0.5em; padding: 0; }
+      .who[hidden] { display: none; }
+      .who-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 14px; }
+      .who-label { font: 500 clamp(11.5px, 0.9cqi, 14px) / 1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg); }
+      .who-link { font: 400 11.5px / 1.4 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; white-space: nowrap; }
+      .who-link:hover { color: var(--fg); text-decoration-color: currentColor; }
+      .who-link[hidden] { display: none; }
+      .who-field { display: flex; align-items: center; border-radius: 10px; background: color-mix(in srgb, var(--fg) 6%, color-mix(in srgb, var(--bg) 88%, transparent)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 26%, transparent); transition: box-shadow 0.15s; scroll-margin-bottom: 45svh; }
+      /* (the focus: ink border, and the title's off-register fringes at the sides) */
+      .who-field:focus-within { box-shadow: inset 0 0 0 2px var(--fg), -3px 0 0 -1px color-mix(in srgb, var(--red) 75%, transparent), 3px 0 0 -1px color-mix(in srgb, var(--cyan) 75%, transparent), 0 0 18px color-mix(in srgb, var(--cyan) 28%, transparent); }
+      .who-field[data-state="failed"] { box-shadow: inset 0 0 0 1.5px var(--err); }
+      .who-pre { flex: none; padding: 11px 2px 11px 12px; font: 500 15px / 1.2 var(--mono); letter-spacing: 0; color: var(--muted); user-select: none; white-space: pre; cursor: text; }
+      .who input { flex: 1; min-width: 0; padding: 11px 8px 11px 0; font: 500 15px / 1.2 var(--mono); letter-spacing: 0; color: var(--fg); background: none; border: 0; outline: none; }
+      .who input::placeholder { color: color-mix(in srgb, var(--fg) 45%, var(--bg)); opacity: 1; }
+      .who input:read-only { cursor: progress; }
+      /* (the mark: a spinner while the name is looked up, a tick when it was, a cross when it was not; nothing otherwise) */
+      .who-st { flex: none; position: relative; width: 20px; height: 20px; margin-right: 10px; display: grid; place-items: center; }
+      .who-field[data-state="loading"] .who-st::before { content: ""; flex: none; box-sizing: border-box; width: 15px; height: 15px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--fg) 22%, transparent); border-top-color: var(--fg); animation: spin 0.8s linear infinite; }
+      .who-field[data-state="done"] .who-st::before { content: ""; width: 5px; height: 10px; margin-top: -3px; border: solid var(--ok-bg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+      .who-field[data-state="failed"] .who-st::before, .who-field[data-state="failed"] .who-st::after { content: ""; position: absolute; width: 12px; height: 2px; border-radius: 2px; background: var(--err); transform: rotate(45deg); }
+      .who-field[data-state="failed"] .who-st::after { transform: rotate(-45deg); }
+      /* (the reason under a field slides open and shut: a grid row going from 0fr to 1fr, so nothing jumps; the closed one is out of the reading order too) */
+      .who-item { display: grid; }
+      .who-note::before { content: ""; display: block; height: 5px; }
+      .who-note-wrap { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows 0.22s ease, opacity 0.22s ease, visibility 0s 0.22s; }
+      .who-note-wrap[data-open="true"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition: grid-template-rows 0.22s ease, opacity 0.22s ease, visibility 0s; }
+      .who-note { min-height: 0; overflow: hidden; margin: 0; font: 400 13px / 1.4 var(--sans); color: var(--err); }
+      /* The Load button: compact, at the left, a plain label; the hint is at its right, and becomes the status or the error when there is one. The button's colour and label follow the state (data-state: idle, loading, done, failed). */
+      .who-actions { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
+      .who-go { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 6.4rem; padding: 4px 10px; font: 600 13px / 1.3 var(--sans); color: var(--bg); background: var(--fg); border: 1px solid transparent; border-radius: 7px; cursor: pointer; transition: background 0.2s, color 0.2s, border-color 0.2s; }
+      .who-go[data-state="idle"]:hover { background: color-mix(in srgb, var(--fg) 88%, var(--bg)); }
+      .who-go:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+      .who-go[data-state="loading"] { cursor: progress; color: var(--busy-text); background: color-mix(in srgb, var(--busy) 12%, var(--bg)); border-color: color-mix(in srgb, var(--busy) 38%, transparent); }
+      /* (the spinner: a small ring in the button's tint, at its left end, centred in its height; the label takes the room that is left) */
+      .who-go[data-state="loading"] { padding-left: 22px; padding-right: 8px; }
+      .who-go[data-state="loading"]::before { content: ""; position: absolute; left: 5px; top: calc(50% - 7px); width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--busy-text) 25%, transparent); border-top-color: var(--busy-text); animation: spin 0.8s linear infinite; }
+      .who-go[data-state="done"] { color: var(--ok-text); background: color-mix(in srgb, var(--ok-bg) 13%, var(--bg)); border-color: color-mix(in srgb, var(--ok-bg) 38%, transparent); }
+      .who-go[data-state="done"]:hover { background: color-mix(in srgb, var(--ok-bg) 19%, var(--bg)); border-color: color-mix(in srgb, var(--ok-bg) 60%, transparent); }
+      .who-go[data-state="failed"] { color: var(--bad-text); background: color-mix(in srgb, var(--bad-bg) 12%, var(--bg)); border-color: color-mix(in srgb, var(--bad-bg) 38%, transparent); }
+      .who-go[data-state="failed"]:hover { background: color-mix(in srgb, var(--bad-bg) 18%, var(--bg)); border-color: color-mix(in srgb, var(--bad-bg) 60%, transparent); }
+      .who-msg { flex: 1 1 0; min-width: 0; margin: 0; font: 400 13px / 1.4 var(--sans); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .who-msg[data-state="failed"] { color: var(--err); }
+      .who-msg a { font-weight: 600; text-decoration: none; text-underline-offset: 3px; }
+      .who-msg a:hover, .who-msg a:focus-visible { text-decoration: underline; }
+      .who-msg a svg { width: 1.25em; height: 1.25em; margin-left: 0.15em; vertical-align: -0.27em; }
+      .who-msg a.g { color: var(--top); } .who-msg a.b { color: var(--bottom); }
+      .who-msg[data-state="done"], .who-msg[data-state="loading"] { color: var(--fg); }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      /* (the graph box while a lookup is out: the flat place-holder stays, and breathes) */
+      #graph.waiting { animation: wait 1.1s ease-in-out infinite alternate; }
+      @keyframes wait { from { opacity: 1; } to { opacity: 0.45; } }
+      @media (prefers-reduced-motion: reduce) {
+        #graph.waiting { animation: none; opacity: 0.6; }
+        .who-field[data-state="loading"] .who-st::before, .who-go[data-state="loading"]::before { animation-duration: 3s; }
+        .who-go { transition: none; } .who-note-wrap, .who-note-wrap[data-open="true"] { transition: none; }
+      }
+      .sr-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
       /* Below 1100 px the title block would run into the blocks: it goes above the graph (and a phone gets four strips in a taller box). */
       /* The big screens: the text hangs over the empty ground at the bottom left of the graph; from 1100 to 1399 it is lowered a little more, as the graph is smaller than the text there. */
       @media (min-width: 1100px) and (max-width: 1399px) {
         .caption { bottom: calc(-3.4cqi - (1400px - 100cqi) * 0.17); width: clamp(24rem, 34cqi, 34rem); }
-        .about { font-size: 15.5px; } .legend { font-size: 12.5px; }
+        .about { font-size: 15.5px; } .legend { font-size: 12.5px; } .who-label { font-size: 12px; }
       }
       /* A tablet (768 to 1099): the graph above and the text under it, as it is hung under the blocks (the graph's weight is at the bottom right, its bottom left is empty): it does not shrink with the page, and keeps its left edge on the blocks'. */
       @media (max-width: 1099px) {
         main { padding: 30px 28px 76px; }
         #graph { aspect-ratio: 2.2 / 1; }
         #stage { display: flex; flex-direction: column; }
-        .caption { position: static; order: 2; flex-direction: column-reverse; width: min(100%, 40rem); margin: -12cqi 0 0 var(--nag-content-left, 0px); padding: 0.4em 0 14px; opacity: 1; gap: 0.7em; }
+        .caption { position: static; order: 2; flex-direction: column-reverse; width: min(100%, 40rem); margin: -12cqi 0 0 var(--nag-content-left, 0px); padding: 0.4em 0 14px; opacity: 1; gap: 0.8em; }
         .caption::before { display: none; }
         h1 { font-size: clamp(36px, 5.4vw, 56px); }
-        .about { font-size: 16px; } .legend { font-size: 12.5px; margin: 0.3em 0 0.9em; }
+        .about { font-size: 16px; } .legend { font-size: 12.5px; } .who-label { font-size: 12px; }
       }
       /* A phone (under 768): the text above the graph, close to the top left corner (more room at the left than at the top), and the graph from edge to edge of the screen. */
       @media (max-width: 767px), (max-aspect-ratio: 1/1) {
@@ -133,11 +194,16 @@
         body { justify-content: flex-start; }
         main { flex: 1; display: flex; flex-direction: column; padding: 22px 22px 0; }
         #stage { flex: 1; display: flex; flex-direction: column; }
+        .themes { position: static; align-self: flex-end; margin: -8px 0 2px; font-size: 15px; }
         #graph { flex: 1 1 auto; aspect-ratio: auto; min-height: 82vw; margin: -3vw -22px 0; width: calc(100% + 44px); }
         .caption { position: relative; left: 0; bottom: auto; z-index: 1; order: 0; flex-direction: column; margin: 0; width: 100%; max-width: 44rem; padding: 0 0 10px; gap: 0.55em; }
         .caption::before { display: none; }
+        .caption .who { order: -1; } .caption h1 { order: 0; } .caption .about { order: 1; } .caption .legend { order: 2; }
         h1 { font-size: clamp(30px, 8.4vw, 64px); }
-        .about { font-size: clamp(15px, 2.1vw, 19px); } .legend { font-size: clamp(12px, 1.6vw, 14px); margin: 0.8em 0 0; }
+        .about { font-size: clamp(15px, 2.1vw, 19px); } .legend { font-size: clamp(11px, 1.6vw, 14px); }
+        /* (a phone: the pitch is cut to its first sentence's worth, the field is a comfortable target and 16 px so that the browser does not zoom; it sits high enough for the keyboard not to cover it) */
+        .who { width: 100%; max-width: 30rem; } .who input { font-size: 16px; padding: 13px 8px 13px 0; }
+        .who-pre { font-size: 16px; padding: 13px 2px 13px 12px; } .who-go { padding: 7px 14px; font-size: 14px; width: 6.8rem; } .who-go[data-state="loading"] { padding-left: 28px; padding-right: 8px; } .who-go[data-state="loading"]::before { left: 8px; top: calc(50% - 8px); width: 16px; height: 16px; }
         /* the corner is the last block of the page, at the left, under the graph: the links, then the state of the data; the panels they open come over the page above it */
         #live { position: static; }
         .corner { position: static; flex-direction: column-reverse; align-items: flex-start; gap: 6px; padding: 4px 22px max(14px, env(safe-area-inset-bottom)); }
@@ -150,10 +216,24 @@
     <div class="grain" aria-hidden="true"></div>
     <main>
       <div id="stage">
+        <div class="themes" role="group" aria-label="Theme"><button type="button" class="theme" data-theme="system" aria-pressed="true">system</button><button type="button" class="theme" data-theme="light" aria-pressed="false">light</button><button type="button" class="theme" data-theme="dark" aria-pressed="false">dark</button></div>
         <div class="caption" id="caption">
           <h1 id="title" aria-label="Neon activity graph"><span aria-hidden="true"><span class="rb">N</span>eon activity graph</span><span class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Neon activity graph</span></h1>
-          <p class="about">A <span class="hl">year</span> of activity drawn as <span class="hl">glass blocks</span>: lit like neon tubes in the dark theme, and in the light theme the same glass with the tubes switched off, lit by the sun. A <span class="lib">three.js</span> component with a <span class="hl">React</span> wrapper.<span class="for">Check out the <a href="https://v2.bsodium.fr/software">software page</a> of <a href="https://v2.bsodium.fr/">BSoDium’s</a> Catalyst.</span><span class="pick">Theme <span class="segs" role="group" aria-label="Theme"><button type="button" class="theme" data-theme="system" aria-pressed="true">system</button><button type="button" class="theme" data-theme="light" aria-pressed="false">light</button><button type="button" class="theme" data-theme="dark" aria-pressed="false">dark</button></span></span></p>
-                    <div class="legend"><span class="g"><i></i><b>GitHub contributions</b></span><span class="b"><i></i><b>WakaTime coding time</b></span></div>
+          <p class="about">A <span class="hl">year</span> of activity drawn as <span class="hl">glass blocks</span>: lit like neon tubes in the dark theme, and in the light theme the same glass with the tubes switched off, lit by the sun. A <span class="lib">three.js</span> component with a <span class="hl">React</span> wrapper.</p>
+          <form class="who" id="who" hidden autocomplete="off" novalidate>
+            <div class="who-head"><label class="who-label" for="who-gh">See your own year</label><button type="button" class="who-link" id="who-back" hidden>← Demo data</button></div>
+            <div class="who-item">
+              <div class="who-field" id="who-gh-box" data-state="idle"><span class="who-pre" aria-hidden="true">github.com/</span><input id="who-gh" name="github" placeholder="BSoDium" aria-label="GitHub username" aria-describedby="who-gh-note" maxlength="39" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" /><span class="who-st" aria-hidden="true"></span></div>
+              <div class="who-note-wrap" data-open="false"><p class="who-note" id="who-gh-note"></p></div>
+            </div>
+            <div class="who-item">
+              <div class="who-field" id="who-wk-box" data-state="idle"><span class="who-pre" aria-hidden="true">wakatime.com/@</span><input id="who-wk" name="wakatime" placeholder="BSoDium" aria-label="WakaTime username" aria-describedby="who-wk-note" maxlength="64" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" /><span class="who-st" aria-hidden="true"></span></div>
+              <div class="who-note-wrap" data-open="false"><p class="who-note" id="who-wk-note"></p></div>
+            </div>
+                        <div class="who-actions"><p class="who-msg" id="who-msg" data-state="idle">GitHub, WakaTime or both</p><button type="submit" class="who-go" id="who-go" data-state="idle">Load</button></div>
+            <p class="sr-live" id="who-live" role="status" aria-live="polite"></p>
+          </form>
+          <div class="legend" id="legend"><span class="g"><i></i><b>GitHub contributions</b></span><span class="b"><i></i><b>WakaTime coding time</b></span></div>
         </div>
         <div id="graph"></div>
       </div>

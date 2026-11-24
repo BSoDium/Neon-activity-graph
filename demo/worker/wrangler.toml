@@ -1,0 +1,15 @@
+# Deploy:  cd demo/worker && npx wrangler deploy
+# The proxy answers only to the origins below (override in the dashboard or here).
+name = "neon-activity-proxy"
+main = "index.mjs"
+compatibility_date = "2025-01-01"
+
+[vars]
+ALLOWED_ORIGINS = "https://neon.bsodium.fr,http://localhost:5189"
+
+# Per-IP rate limit: 20 lookups a minute.
+[[unsafe.bindings]]
+name = "LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }

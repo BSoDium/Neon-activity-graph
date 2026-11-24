@@ -240,6 +240,8 @@ pnpm build      # dist/ (embeds the templates, then tsup)
 
 The [demo](https://neon.bsodium.fr/) (`demo/`) draws the author's current activity: GitHub contributions over WakaTime coding time. `demo/scripts/fetch-activity.mjs` fetches public data without a token, and a scheduled workflow writes `activity.json` to the `data` branch every 6 hours (set the repository variables `GITHUB_LOGIN` and `WAKATIME_USER` to draw someone else's). Without that file the demo falls back to generated data. Its fonts are Shrikhand, Bricolage Grotesque and JetBrains Mono, all under the SIL Open Font License 1.1 (licence texts in `demo/public/fonts`), self-hosted Latin subsets.
 
+**Try your own name.** Neither GitHub's calendar nor WakaTime sends CORS headers, so the demo's username fields (`?github=<login>&wakatime=<user>`, either or both, one request each) goes through a small Cloudflare Worker (`demo/worker`, same parsers as the script in `demo/shared`): it validates the names, caches an hour, rate-limits per IP, and answers only to the demo's origin. It reads public data only and stores nothing. Deploy it with `cd demo/worker && npx wrangler deploy`, then build the demo with `VITE_PROXY_URL=<worker url>`; without that variable the field stays hidden. Locally (`pnpm demo`) the field expects the worker at `http://localhost:8787` (`npx wrangler dev`).
+
 ## Releasing (maintainers)
 
 Releases go through npm Trusted Publishing (OIDC): no npm token is created or stored. The trusted publisher is set on npmjs.com (package > Settings > Trusted Publisher > GitHub Actions: user `BSoDium`, repository `Neon-activity-graph`, workflow `release.yml`, environment empty). `0.1.0` was published by hand, since a trusted publisher can only be attached to a package that already exists.

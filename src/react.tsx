@@ -28,6 +28,8 @@ export function ActivityGraphView({ className, style, aspect, placeholder = true
   latest.current = options;
   const { data, strips, weeks, lite, templatesUrl, theme } = options;
   const custom = !!options.rodColor;
+  // (the link is made once, with the graph: a change of it rebuilds the view)
+  const attributionKey = JSON.stringify(options.attribution ?? false);
 
   useEffect(() => {
     const el = host.current;
@@ -55,7 +57,7 @@ export function ActivityGraphView({ className, style, aspect, placeholder = true
     };
     // (`theme` is not a dependency: it is changed in place, below)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, strips, weeks, lite, templatesUrl, custom]);
+  }, [data, strips, weeks, lite, templatesUrl, custom, attributionKey]);
   // (a rebuild of the view starts from the latest colours, which `latest` holds)
 
   // (new colours rebuild the blocks in place: not the whole view)

@@ -5,7 +5,7 @@ import { layoutGraph, type Matrix } from "./layout";
 import { createNeon } from "./neon";
 import { sideShares, type Neighbour } from "./edge-light";
 import { CUT_DECLS_FRAGMENT, CUT_DECLS_VERTEX, CUT_FRAGMENT_FADING, CUT_FRAGMENT_LIGHT, CUT_VERTEX_FADING, CUT_VERTEX_LIGHT, CUT_VERTEX_SOLID, CUT_VERTEX_SOLID_END, inTheWay, resolveCutaway, stepFades } from "./cutaway";
-import { renderSize } from "./size";
+import { heldPicture, renderSize } from "./size";
 import { createHoverHum } from "./hover-hum";
 import { dayAfterKey } from "./keys";
 import type { ContentBounds, GraphData, HoverInfo, GraphOptions, LayerColors, Startup, Tones } from "./types";
@@ -121,17 +121,18 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       let announced = false;
       // (the neon start-up begins when the picture first appears)
       let neonStart: (() => void) | null = null;
-      // While the box is being resized the picture is not stretched with it: it keeps the size it was drawn at, centred, softened, until the new one is drawn (a stretched picture jumps, which is what the blur is there to hide)
+      // While the box is being resized the last picture follows it: scaled alike both ways (never stretched out of its aspect), centred, softened, until the new one is drawn for the new size and takes its place without a jump
       let shownW = 0;
       let shownH = 0;
       const holdSize = () => {
-        if (!shownW || !shownH) return;
+        const p = heldPicture({ width: shownW, height: shownH }, { width: el.clientWidth, height: el.clientHeight });
+        if (!p) return;
         const s = renderer.domElement.style;
         s.inset = "auto";
-        s.width = `${shownW}px`;
-        s.height = `${shownH}px`;
-        s.left = `${(el.clientWidth - shownW) / 2}px`;
-        s.top = `${(el.clientHeight - shownH) / 2}px`;
+        s.width = `${p.width}px`;
+        s.height = `${p.height}px`;
+        s.left = `${p.left}px`;
+        s.top = `${p.top}px`;
       };
       const releaseSize = () => {
         const s = renderer.domElement.style;

@@ -115,7 +115,7 @@ interface GraphLayer {
 | `grain` | `0.012` | Film grain strength; `0` turns it off. |
 | `placeholder` | `true` | The flat days, shown at once and pulsing, faded out when the first picture is on screen. |
 | `overlay` | off | `true` or `{ outline?, card?, locale? }`: the selected day's outline and a day card, drawn over the graph. See [Overlay](#overlay). |
-| `attribution` | off | `true` or `{ text?, href?, target? }`: a small "Powered by Neon" link in the bottom right corner of the box, for a site that wants to say what draws its graph. Styled with `--nag-attribution-fg`, `--nag-attribution-right` and `--nag-attribution-bottom`. |
+| `attribution` | off | `true` or `{ text?, href?, target? }`: a small "Powered by Neon" link in the bottom right corner of the box, for a site that wants to say what draws its graph. Styled with `--nag-attribution-fg`, `--nag-attribution-fg-hover`, `--nag-attribution-right` and `--nag-attribution-bottom` (10px; by default 8px from the bottom, or lower, down to the edge, so that it keeps clear of the blocks). |
 | `label` | "Activity graph, one column a day. …" | The accessible name. |
 | `templatesUrl` | embedded | Where to fetch `caustic-templates.png` from, instead of the embedded data URI. |
 | `cutaway` | `true` | `false`, or `{ strength? }`. While a day is selected, the days that stand in its way (that hide it from the camera) fade out, whole, in both themes, so a day behind taller ones can be seen. `strength` is the share taken away (`0`–`1`, default `1`: they are gone). See [Cutaway](#cutaway). |

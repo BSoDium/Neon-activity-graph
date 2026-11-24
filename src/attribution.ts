@@ -1,6 +1,6 @@
 /**
  * A small "Powered by Neon" link in the bottom right corner of the graph's box, for a site that wants to say what draws its graph and point to the project's page. Off unless asked for (`attribution`).
- * Styled through CSS variables set on the container or above it: `--nag-attribution-fg` (the colour; by default the text colour, faded), `--nag-attribution-fg-hover`, `--nag-attribution-right` and `--nag-attribution-bottom` (its offsets, 10px and 8px).
+ * Styled through CSS variables set on the container or above it: `--nag-attribution-fg` (the colour; by default the text colour, faded), `--nag-attribution-fg-hover`, `--nag-attribution-right` and `--nag-attribution-bottom` (its offsets: 10px, and 8px or less so that it keeps clear of the blocks).
  */
 export interface AttributionOptions {
   /** The words (default "Powered by Neon"). */
@@ -47,7 +47,8 @@ export function createAttribution(container: HTMLElement, options: Required<Attr
   if (options.target === "_blank") a.rel = "noopener";
   a.setAttribute("aria-label", options.text);
   // (a link over the picture: it takes the pointer where it is, and the rest of the box keeps its own)
-  a.style.cssText = "position:absolute;right:var(--nag-attribution-right,10px);bottom:var(--nag-attribution-bottom,8px);z-index:3";
+  // (by default 8 px from the bottom edge, or lower, down to the edge itself, when the blocks come that near: it keeps clear of them (`--nag-content-bottom`, the lowest block's edge, is set on the container by the graph). `--nag-attribution-bottom` sets it for good)
+  a.style.cssText = "position:absolute;right:var(--nag-attribution-right,10px);bottom:var(--nag-attribution-bottom,min(8px,max(0px,calc(100% - var(--nag-content-bottom,0px) - 22px))));z-index:3";
   const style = document.createElement("style");
   style.textContent = `#${id}{display:inline-flex;align-items:center;gap:.25em;padding:4px 3px;border-radius:4px;font:500 11px/1 system-ui,sans-serif;letter-spacing:.04em;text-decoration:none;color:var(--nag-attribution-fg,color-mix(in srgb,currentColor 52%,transparent));transition:color .2s}
 #${id} b{font-weight:700}

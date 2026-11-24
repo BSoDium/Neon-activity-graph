@@ -66,7 +66,7 @@ export function createAttribution(container: HTMLElement, options: Required<Attr
     words.textContent = options.text;
   }
   const arrow = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) arrow.setAttribute(k, v);
+  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2.8", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) arrow.setAttribute(k, v);
   for (const d of ["M7 17 17 7", "M7 7h10v10"]) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", d);

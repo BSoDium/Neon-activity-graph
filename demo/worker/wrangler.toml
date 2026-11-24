@@ -1,4 +1,8 @@
-# Deploy:  cd demo/worker && npx wrangler deploy
+# Deploy:  cd demo/worker && npx wrangler login && npx wrangler deploy
+# The free plan is enough (no card). The answer's URL is https://neon-activity-proxy.<your-subdomain>.workers.dev: set it as the repository variable VITE_PROXY_URL.
+# If `wrangler deploy` rejects the rate-limit table at the bottom, delete it: the worker runs without it.
+# A custom domain is optional (it needs the domain's DNS on Cloudflare); uncomment and set it to also get the Cache API:
+# routes = [{ pattern = "neon-api.example.com", custom_domain = true }]
 # The proxy answers only to the origins below (override in the dashboard or here).
 name = "neon-activity-proxy"
 main = "index.mjs"

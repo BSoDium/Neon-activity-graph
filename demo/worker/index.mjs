@@ -4,7 +4,8 @@
 //   GET /?github=<login>&wakatime=<user>  (either, or both; at least one)  ->  200 activity.json | 400 bad or missing name | 404 unknown GitHub user, or a WakaTime profile that is private or missing when it is the only source | 502 upstream failed | 429 rate-limited
 //   With both names, a WakaTime failure is not an error: GitHub is drawn alone (`wakatime: "unavailable"`). With WakaTime alone it is one. The demo asks for each source in its own request, so each has its own state.
 //
-// Public data only; nothing is stored or logged by this code. Answers are cached an hour at the edge (one upstream call per name and hour).
+// Public data only; nothing is stored or logged by this code. Answers are cached an hour at the edge (one upstream call per name and hour): the Cache API below on a custom domain or route, and the upstream
+// fetches' own edge cache (`cacheEverything`) everywhere, `*.workers.dev` included, where the Cache API does nothing.
 import { buildActivity, githubUrl, parseGithubCalendar, parseWakatimeDays, validGithubLogin, validWakatimeUser, wakatimeUrl } from "../shared/activity.mjs";
 
 const DEFAULT_ORIGINS = ["https://neon.bsodium.fr", "http://localhost:5189"];
@@ -18,7 +19,7 @@ const json = (body, status, origin, extra = {}) =>
   });
 
 async function upstream(url) {
-  return fetch(url, { headers: { "user-agent": "neon-activity-graph-demo" }, signal: AbortSignal.timeout(TIMEOUT_MS), cf: { cacheTtl: TTL } });
+  return fetch(url, { headers: { "user-agent": "neon-activity-graph-demo" }, signal: AbortSignal.timeout(TIMEOUT_MS), cf: { cacheTtl: TTL, cacheEverything: true } });
 }
 
 /** WakaTime's days, or null (private, missing, unreadable or slow). `status` tells which, for a WakaTime-only answer. */

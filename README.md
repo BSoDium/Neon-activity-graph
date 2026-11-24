@@ -123,6 +123,10 @@ interface GraphLayer {
 | `maxPixels` | `8_000_000` | The most pixels rendered; a larger container is rendered at a lower ratio. |
 | `debug` | | `{ metrics?, wireframe?, neonHold? }`: development helpers (`data-*` timings on the container, the glass as a cage, the picture held half on). |
 
+### The credit link
+
+`attribution` puts a small "Powered by Neon" link in the graph's bottom right corner. To put it anywhere else, outside the canvas, in a footer, in a row of captions, use the same link on its own: in React `import { NeonAttribution } from "neon-activity-graph/react"` and `<NeonAttribution className="..." />` (an inline link, placed by your layout; `text`, `href` and `target` as in the option), or `createAttribution(container, options)` from the main entry for any element. It takes the text colour, faded, and `--nag-attribution-fg` and `--nag-attribution-fg-hover` set its colours.
+
 ### Callbacks
 
 | Callback | |

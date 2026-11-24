@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ATTRIBUTION_HREF, ATTRIBUTION_TEXT, resolveAttribution } from "./attribution";
+import { ATTRIBUTION_HREF, ATTRIBUTION_TEXT, attributionCss, resolveAttribution } from "./attribution";
 
 describe("resolveAttribution", () => {
   it("is off unless asked for", () => {
@@ -18,5 +18,13 @@ describe("resolveAttribution", () => {
   });
   it("ignores empty words", () => {
     expect(resolveAttribution({ text: "   " })?.text).toBe(ATTRIBUTION_TEXT);
+  });
+});
+
+describe("attributionCss", () => {
+  it("styles the link, its bold name, its arrow, hover and focus, for the selector it is given", () => {
+    const css = attributionCss("#x");
+    for (const rule of ["#x{", "#x b{", "#x svg{", "#x:hover,#x:focus-visible{", "#x:hover span,#x:focus-visible span{text-decoration:underline", "#x:focus-visible{outline"]) expect(css).toContain(rule);
+    expect(css).toContain("--nag-attribution-fg");
   });
 });

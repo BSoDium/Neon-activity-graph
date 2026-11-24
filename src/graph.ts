@@ -105,16 +105,18 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFShadowMap;
       const CANVAS_FADE = "filter .4s ease,opacity .4s ease";
+      // (how soft the picture is while it is redrawn or coming in: enough that the old picture, scaled to follow a box being resized, does not show its scaling)
+      const SOFT = "blur(11px)";
       // (the canvas is born invisible and blurred, and it is STYLED BEFORE it is in the page: `getComputedStyle` below makes the browser style what is in the page, so a canvas added first was styled at full strength and then faded out by this very line, a picture that showed, went and came back)
       // (absolute, so that the canvas never decides the size of its box: with its own aspect it could make the box a pixel taller, the box's resize would redraw the picture, and so on, without end)
-      renderer.domElement.style.cssText = `position:absolute;inset:0;display:block;width:100%;height:100%;transition:${CANVAS_FADE};opacity:0;filter:blur(7px)`;
+      renderer.domElement.style.cssText = `position:absolute;inset:0;display:block;width:100%;height:100%;transition:${CANVAS_FADE};opacity:0;filter:${SOFT}`;
       el.appendChild(renderer.domElement);
       if (getComputedStyle(el).position === "static") el.style.position = "relative";
       // While the picture is redrawn (a resize, a change of scheme) the last one stays, blurred, and comes back into focus on the new one once it has a few frames in it
       let settling = false;
       const soften = (opacity = "0.85") => {
         settling = true;
-        renderer.domElement.style.filter = "blur(7px)";
+        renderer.domElement.style.filter = SOFT;
         renderer.domElement.style.opacity = opacity;
       };
       // (it comes in the same way the first time: invisible and blurred, then in focus; `onReady` tells the page to fade its place-holder out)

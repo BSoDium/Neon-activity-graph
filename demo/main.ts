@@ -9,7 +9,7 @@ const host = $("graph");
 const stage = $("stage");
 const live$ = $("live");
 // (the portrait picture, four strips: on a phone, and on any screen that is as tall as it is wide or taller, where one long strip would be a thin line in the middle of it)
-const narrow = matchMedia("(max-width: 767px), (max-aspect-ratio: 1/1)");
+const narrow = matchMedia("(max-aspect-ratio: 1/1)");
 
 // (the title is plain markup in the page: there from the first paint, whole. Only the graph's own start-up flickers.)
 
@@ -381,6 +381,28 @@ if (PROXY) {
     wkF.input.value = startWho.wakatime;
     void show(startWho);
   }
+}
+
+// --- wide screens: the gap above the top row (legend and theme switch) is the gap under the title ---
+// The page is centred as a box, but the text block hangs below the graph's box, so the picture sits low. Measured, and the page moved by half the difference (a transform: nothing is laid out again). Only from the desktop layout up.
+{
+  const main = document.querySelector<HTMLElement>("main")!;
+  const wide = matchMedia("(min-width: 1100px)");
+  const balance = () => {
+    main.style.transform = "";
+    if (!wide.matches) return;
+    const top = document.querySelector<HTMLElement>(".themes")!.getBoundingClientRect().top;
+    const bottom = innerHeight - $("title").getBoundingClientRect().bottom;
+    const up = (top - bottom) / 2;
+    // (a page that scrolls is only moved up, and never so far that the top row leaves a gap of less than 8 px)
+    const scrolls = document.documentElement.scrollHeight > innerHeight + 1;
+    if (Math.abs(up) > 1 && !(scrolls && (up < 0 || top - up < 8))) main.style.transform = `translateY(${(-up).toFixed(1)}px)`;
+  };
+  new ResizeObserver(balance).observe($("caption"));
+  addEventListener("resize", balance);
+  wide.addEventListener("change", balance);
+  document.fonts?.ready.then(balance);
+  balance();
 }
 
 // --- the panels: "How it works" and "Colours" (keyboard accessible: Escape closes, so does a click outside) ---

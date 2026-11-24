@@ -126,7 +126,7 @@
       .who-link { font: 400 11.5px / 1.4 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; white-space: nowrap; }
       .who-link:hover { color: var(--fg); text-decoration-color: currentColor; }
       .who-link[hidden] { display: none; }
-      .who-field { display: flex; align-items: center; border-radius: 10px; background: color-mix(in srgb, var(--fg) 6%, color-mix(in srgb, var(--bg) 88%, transparent)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 26%, transparent); transition: box-shadow 0.15s; scroll-margin-bottom: 45svh; }
+      .who-field { display: flex; align-items: center; min-width: 0; border-radius: 10px; background: color-mix(in srgb, var(--fg) 6%, color-mix(in srgb, var(--bg) 88%, transparent)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 26%, transparent); transition: box-shadow 0.15s; scroll-margin-bottom: 45svh; }
       /* (the focus: ink border, and the title's off-register fringes at the sides) */
       .who-field:focus-within { box-shadow: inset 0 0 0 2px var(--fg), -3px 0 0 -1px color-mix(in srgb, var(--red) 75%, transparent), 3px 0 0 -1px color-mix(in srgb, var(--cyan) 75%, transparent), 0 0 18px color-mix(in srgb, var(--cyan) 28%, transparent); }
       .who-field[data-state="failed"] { box-shadow: inset 0 0 0 1.5px var(--err); }
@@ -141,7 +141,7 @@
       .who-field[data-state="failed"] .who-st::before, .who-field[data-state="failed"] .who-st::after { content: ""; position: absolute; width: 12px; height: 2px; border-radius: 2px; background: var(--err); transform: rotate(45deg); }
       .who-field[data-state="failed"] .who-st::after { transform: rotate(-45deg); }
       /* (the reason under a field slides open and shut: a grid row going from 0fr to 1fr, so nothing jumps; the closed one is out of the reading order too) */
-      .who-item { display: grid; }
+      .who-item { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
       .who-note::before { content: ""; display: block; height: 5px; }
       .who-note-wrap { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows 0.22s ease, opacity 0.22s ease, visibility 0s 0.22s; }
       .who-note-wrap[data-open="true"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition: grid-template-rows 0.22s ease, opacity 0.22s ease, visibility 0s; }
@@ -185,7 +185,12 @@
       }
       /* A tablet (768 to 1099): the graph above and the text under it, as it is hung under the blocks (the graph's weight is at the bottom right, its bottom left is empty): it does not shrink with the page, and keeps its left edge on the blocks'. */
       @media (max-width: 1099px) {
-        main { padding: 30px 28px 76px; }
+        main { padding: 30px 28px 8px; }
+        #live { position: static; }
+        .corner { position: static; flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px; padding: 8px 28px max(14px, env(safe-area-inset-bottom)); }
+        #live { order: -1; }
+        .links { justify-content: flex-end; }
+        .panel { position: fixed; left: 12px; bottom: 16px; width: min(26rem, calc(100vw - 24px)); max-height: calc(100svh - 32px); overflow: auto; }
         #graph { aspect-ratio: 2.2 / 1; }
         #stage { display: flex; flex-direction: column; }
         .caption { position: static; order: 2; flex-direction: column-reverse; width: min(100%, 40rem); margin: -12cqi 0 0 var(--nag-content-left, 0px); padding: 0.4em 0 14px; opacity: 1; gap: 0.8em; }
@@ -194,26 +199,37 @@
         h1 { font-size: clamp(36px, 5.4vw, 56px); }
         .about { font-size: 16px; } .legend { font-size: 12.5px; } .who-label { font-size: 12px; }
       }
-      /* A phone (under 768): the text above the graph, close to the top left corner (more room at the left than at the top), and the graph from edge to edge of the screen. */
-      @media (max-width: 767px), (max-aspect-ratio: 1/1) {
+      @media (hover: none) { .hint { display: none; } }
+      /* Touch: the hit areas of the small controls reach 44 px (the look is unchanged: an invisible extension), the button is a full-size target. */
+      @media (pointer: coarse) {
+        .theme, .who-link, .links a, .links button { position: relative; }
+        .theme::after { content: ""; position: absolute; inset: -7px -3px; }
+        .who-link::after, .links a::after, .links button::after { content: ""; position: absolute; inset: -14px -8px; }
+        .links { gap: 14px 18px; }
+        .who-go { min-height: 44px; }
+        .who-field { min-height: 46px; }
+      }
+      /* A phone, or any window as tall as it is wide or taller (the landscape phone has the tablet layout above): the text above the graph, close to the top left corner (more room at the left than at the top), and the graph from edge to edge of the screen. */
+      @media (max-aspect-ratio: 1/1) {
         /* The page is as tall as the screen when it can be (the graph takes what the text leaves, its picture fitted in it), and scrolls only when the screen is too short for the text and a graph of a legible size. */
         body { justify-content: flex-start; }
         main { flex: 1; display: flex; flex-direction: column; padding: 22px 22px 0; }
         #stage { flex: 1; display: flex; flex-direction: column; }
-        .topbar { position: static; order: -1; align-items: flex-start; margin: -8px 0 16px; gap: 12px; } .topbar .legend { opacity: 1; flex-direction: column; flex-wrap: nowrap; gap: 0.35em; padding-top: 0.55em; } .themes { font-size: 15px; flex: none; }
-        #graph { flex: 1 1 auto; aspect-ratio: auto; min-height: 82vw; margin: -3vw -22px 0; width: calc(100% + 44px); }
-        .caption { position: relative; left: 0; bottom: auto; z-index: 1; order: 0; flex-direction: column; margin: 0; width: 100%; max-width: 44rem; padding: 0 0 10px; gap: 0.55em; }
+        /* (the graph is the centre of the page: the top bar, then the graph, then the text block under it. The theme switch is as tall as the two legend lines, and aligned with them.) */
+        .topbar { position: static; order: -1; align-items: stretch; margin: -8px 0 10px; gap: 12px; } .topbar .legend { opacity: 1; flex-direction: column; flex-wrap: nowrap; gap: 0.45em; padding: 0; justify-content: center; } .themes { font-size: 15px; flex: none; align-self: stretch; align-items: stretch; } .themes .theme { display: flex; align-items: center; padding-block: 0; }
+        @media (max-width: 520px) { .legend .more { display: none; } }
+        #graph { order: 0; flex: 1 1 auto; aspect-ratio: auto; min-height: min(82vw, 52svh); margin: 0 -22px 0; width: calc(100% + 44px); }
+        .caption { position: relative; left: 0; bottom: auto; z-index: 1; order: 1; flex-direction: column; margin: 0; width: 100%; max-width: 44rem; padding: 6px 0 10px; gap: 0.55em; }
         .caption::before { display: none; }
         .caption .who { order: -1; } .caption h1 { order: 0; } .caption .about { order: 1; }
         h1 { font-size: clamp(30px, 8.4vw, 64px); }
         .about { font-size: clamp(15px, 2.1vw, 19px); } .legend { font-size: clamp(11px, 1.6vw, 14px); }
         /* (a phone: the pitch is cut to its first sentence's worth, the field is a comfortable target and 16 px so that the browser does not zoom; it sits high enough for the keyboard not to cover it) */
         .who { width: 100%; max-width: 30rem; } .who input { font-size: 16px; padding: 13px 8px 13px 0; }
-        .who-pre { font-size: 16px; padding: 13px 2px 13px 12px; } .who-go { padding: 7px 14px; font-size: 14px; width: 6.8rem; } .who-go[data-state="loading"] { padding-left: 28px; padding-right: 8px; } .who-go[data-state="loading"]::before { left: 8px; top: calc(50% - 8px); width: 16px; height: 16px; }
+        .who-pre { font-size: 16px; padding: 13px 2px 13px 12px; } .who-go { padding: 7px 14px; font-size: 14px; width: 6rem; } .who-go[data-state="loading"] { padding-left: 28px; padding-right: 8px; } .who-go[data-state="loading"]::before { left: 8px; top: calc(50% - 8px); width: 16px; height: 16px; }
         /* the corner is the last block of the page, at the left, under the graph: the links, then the state of the data; the panels they open come over the page above it */
         #live { position: static; }
-        .corner { position: static; flex-direction: column-reverse; align-items: flex-start; gap: 6px; padding: 4px 22px max(14px, env(safe-area-inset-bottom)); }
-        .links { justify-content: flex-start; }
+        .corner { padding: 8px 22px max(14px, env(safe-area-inset-bottom)); }
         .panel { position: fixed; left: 12px; right: 12px; bottom: 84px; width: auto; max-height: calc(100svh - 110px); overflow: auto; }
       }
     </style>
@@ -240,7 +256,7 @@
           </form>
         </div>
         <div class="topbar">
-          <div class="legend" id="legend"><span class="g"><i></i><b>GitHub contributions</b></span><span class="b"><i></i><b>WakaTime coding time</b></span></div>
+          <div class="legend" id="legend"><span class="g"><i></i><b>GitHub<span class="more"> contributions</span></b></span><span class="b"><i></i><b>WakaTime<span class="more"> coding time</span></b></span></div>
   <div class="themes" role="group" aria-label="Theme"><button type="button" class="theme" data-theme="system" aria-pressed="true">system</button><button type="button" class="theme" data-theme="light" aria-pressed="false">light</button><button type="button" class="theme" data-theme="dark" aria-pressed="false">dark</button></div>
         </div>
         <div id="graph"></div>

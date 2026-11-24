@@ -52,7 +52,7 @@
       .caption { position: absolute; left: var(--nag-content-left, 0px); bottom: -3.4cqi; z-index: 1; pointer-events: none; display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 0.8em; width: 34cqi; padding: 1.4em 0 0 0; opacity: 0; transition: opacity 0.5s ease; }
       .caption.ready { opacity: 1; }
       /* (column-reverse: the first is at the bottom. Bottom to top: the title, the pitch, the theme, the legend, the lookup; a phone reads top to bottom: lookup, title, pitch, legend, theme) */
-      .caption h1 { order: 1; } .caption .about { order: 2; } .caption .legend { order: 4; } .caption .who { order: 5; }
+      .caption h1 { order: 1; } .caption .about { order: 2; } .caption .who { order: 5; }
       .caption > * { pointer-events: auto; user-select: text; -webkit-user-select: text; }
       .caption::before { content: ""; position: absolute; inset: -2em -6em -2em -3em; z-index: -1; background: radial-gradient(ellipse 50% 50% at 50% 50%, color-mix(in srgb, var(--bg) 84%, transparent) 0%, color-mix(in srgb, var(--bg) 72%, transparent) 55%, transparent 100%); }
 
@@ -71,7 +71,12 @@
       .about { margin: 0; color: var(--muted); font-size: clamp(14px, 1.2cqi, 19px); line-height: 1.45; max-width: 36em; font-weight: 420; }
       .about .hl { font-weight: 720; color: var(--fg); }
       /* (the choice of theme, in the top right corner of the stage, opposite the title: the three words as they are, the chosen one on a highlight in the text's colour with its letters in the page's, so that it reads as the chosen one and not as a link; on a phone it is the first row of the page) */
-      .themes { position: absolute; top: -6px; right: var(--nag-inset-right, 0px); z-index: 3; display: flex; align-items: center; gap: 2px; font: 600 clamp(14px, 1.1cqi, 17px) / 1.25 var(--sans); }
+      /* The top bar: the legend at the left, on the caption's left edge (the blocks'), and the theme switch at the right, on the blocks' right edge; one row, vertically centred on each other. */
+      .topbar { position: absolute; top: -6px; left: var(--nag-content-left, 0px); right: var(--nag-inset-right, 0px); z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 1.5em; pointer-events: none; }
+      .topbar > * { pointer-events: auto; }
+      .topbar .legend { opacity: 0; transition: opacity 0.6s; }
+      .caption.ready ~ .topbar .legend { opacity: 1; }
+      .themes { display: flex; margin-left: auto; align-items: center; gap: 2px; font: 600 clamp(14px, 1.1cqi, 17px) / 1.25 var(--sans); }
       .themes .theme { font: inherit; line-height: 1.25; color: var(--fg); background: none; border: 0; border-radius: 3px; margin: 0; padding: 0.4em 0.75em; cursor: pointer; }
       .themes .theme[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
       .themes .theme:not([aria-pressed="true"]):hover { background: color-mix(in srgb, var(--fg) 16%, transparent); }
@@ -184,6 +189,7 @@
         #graph { aspect-ratio: 2.2 / 1; }
         #stage { display: flex; flex-direction: column; }
         .caption { position: static; order: 2; flex-direction: column-reverse; width: min(100%, 40rem); margin: -12cqi 0 0 var(--nag-content-left, 0px); padding: 0.4em 0 14px; opacity: 1; gap: 0.8em; }
+        .topbar .legend { opacity: 1; }
         .caption::before { display: none; }
         h1 { font-size: clamp(36px, 5.4vw, 56px); }
         .about { font-size: 16px; } .legend { font-size: 12.5px; } .who-label { font-size: 12px; }
@@ -194,11 +200,11 @@
         body { justify-content: flex-start; }
         main { flex: 1; display: flex; flex-direction: column; padding: 22px 22px 0; }
         #stage { flex: 1; display: flex; flex-direction: column; }
-        .themes { position: static; align-self: flex-end; margin: -8px 0 2px; font-size: 15px; }
+        .topbar { position: static; order: -1; align-items: flex-start; margin: -8px 0 16px; gap: 12px; } .topbar .legend { opacity: 1; flex-direction: column; flex-wrap: nowrap; gap: 0.35em; padding-top: 0.55em; } .themes { font-size: 15px; flex: none; }
         #graph { flex: 1 1 auto; aspect-ratio: auto; min-height: 82vw; margin: -3vw -22px 0; width: calc(100% + 44px); }
         .caption { position: relative; left: 0; bottom: auto; z-index: 1; order: 0; flex-direction: column; margin: 0; width: 100%; max-width: 44rem; padding: 0 0 10px; gap: 0.55em; }
         .caption::before { display: none; }
-        .caption .who { order: -1; } .caption h1 { order: 0; } .caption .about { order: 1; } .caption .legend { order: 2; }
+        .caption .who { order: -1; } .caption h1 { order: 0; } .caption .about { order: 1; }
         h1 { font-size: clamp(30px, 8.4vw, 64px); }
         .about { font-size: clamp(15px, 2.1vw, 19px); } .legend { font-size: clamp(11px, 1.6vw, 14px); }
         /* (a phone: the pitch is cut to its first sentence's worth, the field is a comfortable target and 16 px so that the browser does not zoom; it sits high enough for the keyboard not to cover it) */
@@ -216,7 +222,6 @@
     <div class="grain" aria-hidden="true"></div>
     <main>
       <div id="stage">
-        <div class="themes" role="group" aria-label="Theme"><button type="button" class="theme" data-theme="system" aria-pressed="true">system</button><button type="button" class="theme" data-theme="light" aria-pressed="false">light</button><button type="button" class="theme" data-theme="dark" aria-pressed="false">dark</button></div>
         <div class="caption" id="caption">
           <h1 id="title" aria-label="Neon activity graph"><span aria-hidden="true"><span class="rb">N</span>eon activity graph</span><span class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Neon activity graph</span></h1>
           <p class="about">A <span class="hl">year</span> of activity drawn as <span class="hl">glass blocks</span>: lit like neon tubes in the dark theme, and in the light theme the same glass with the tubes switched off, lit by the sun. A <span class="lib">three.js</span> component with a <span class="hl">React</span> wrapper.</p>
@@ -233,7 +238,10 @@
                         <div class="who-actions"><p class="who-msg" id="who-msg" data-state="idle">GitHub, WakaTime or both</p><button type="submit" class="who-go" id="who-go" data-state="idle">Load</button></div>
             <p class="sr-live" id="who-live" role="status" aria-live="polite"></p>
           </form>
+        </div>
+        <div class="topbar">
           <div class="legend" id="legend"><span class="g"><i></i><b>GitHub contributions</b></span><span class="b"><i></i><b>WakaTime coding time</b></span></div>
+  <div class="themes" role="group" aria-label="Theme"><button type="button" class="theme" data-theme="system" aria-pressed="true">system</button><button type="button" class="theme" data-theme="light" aria-pressed="false">light</button><button type="button" class="theme" data-theme="dark" aria-pressed="false">dark</button></div>
         </div>
         <div id="graph"></div>
       </div>

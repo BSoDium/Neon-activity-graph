@@ -5,7 +5,7 @@ import { layoutGraph, type Matrix } from "./layout";
 import { createNeon } from "./neon";
 import { sideShares, type Neighbour } from "./edge-light";
 import { CUT_DECLS_FRAGMENT, CUT_DECLS_VERTEX, CUT_FRAGMENT_FADING, CUT_FRAGMENT_LIGHT, CUT_VERTEX_FADING, CUT_VERTEX_LIGHT, CUT_VERTEX_SOLID, CUT_VERTEX_SOLID_END, inTheWay, resolveCutaway, stepFades } from "./cutaway";
-import { renderSize } from "./size";
+import { heldPicture, renderSize } from "./size";
 import { createHoverHum } from "./hover-hum";
 import { dayAfterKey } from "./keys";
 import type { ContentBounds, GraphData, HoverInfo, GraphOptions, LayerColors, Startup, Tones } from "./types";
@@ -105,33 +105,36 @@ export function mountScene(el: HTMLElement, opts: GraphOptions & { data: GraphDa
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFShadowMap;
       const CANVAS_FADE = "filter .4s ease,opacity .4s ease";
+      // (how soft the picture is while it is redrawn or coming in: enough that the old picture, scaled to follow a box being resized, does not show its scaling)
+      const SOFT = "blur(11px)";
       // (the canvas is born invisible and blurred, and it is STYLED BEFORE it is in the page: `getComputedStyle` below makes the browser style what is in the page, so a canvas added first was styled at full strength and then faded out by this very line, a picture that showed, went and came back)
       // (absolute, so that the canvas never decides the size of its box: with its own aspect it could make the box a pixel taller, the box's resize would redraw the picture, and so on, without end)
-      renderer.domElement.style.cssText = `position:absolute;inset:0;display:block;width:100%;height:100%;transition:${CANVAS_FADE};opacity:0;filter:blur(7px)`;
+      renderer.domElement.style.cssText = `position:absolute;inset:0;display:block;width:100%;height:100%;transition:${CANVAS_FADE};opacity:0;filter:${SOFT}`;
       el.appendChild(renderer.domElement);
       if (getComputedStyle(el).position === "static") el.style.position = "relative";
       // While the picture is redrawn (a resize, a change of scheme) the last one stays, blurred, and comes back into focus on the new one once it has a few frames in it
       let settling = false;
       const soften = (opacity = "0.85") => {
         settling = true;
-        renderer.domElement.style.filter = "blur(7px)";
+        renderer.domElement.style.filter = SOFT;
         renderer.domElement.style.opacity = opacity;
       };
       // (it comes in the same way the first time: invisible and blurred, then in focus; `onReady` tells the page to fade its place-holder out)
       let announced = false;
       // (the neon start-up begins when the picture first appears)
       let neonStart: (() => void) | null = null;
-      // While the box is being resized the picture is not stretched with it: it keeps the size it was drawn at, centred, softened, until the new one is drawn (a stretched picture jumps, which is what the blur is there to hide)
+      // While the box is being resized the last picture follows it: scaled alike both ways (never stretched out of its aspect), centred, softened, until the new one is drawn for the new size and takes its place without a jump
       let shownW = 0;
       let shownH = 0;
       const holdSize = () => {
-        if (!shownW || !shownH) return;
+        const p = heldPicture({ width: shownW, height: shownH }, { width: el.clientWidth, height: el.clientHeight });
+        if (!p) return;
         const s = renderer.domElement.style;
         s.inset = "auto";
-        s.width = `${shownW}px`;
-        s.height = `${shownH}px`;
-        s.left = `${(el.clientWidth - shownW) / 2}px`;
-        s.top = `${(el.clientHeight - shownH) / 2}px`;
+        s.width = `${p.width}px`;
+        s.height = `${p.height}px`;
+        s.left = `${p.left}px`;
+        s.top = `${p.top}px`;
       };
       const releaseSize = () => {
         const s = renderer.domElement.style;

@@ -1,4 +1,16 @@
 /**
+ * While a box is being resized, the picture last drawn (`shown`, in CSS pixels) is fitted into the new box (`box`): scaled alike both ways and centred, so it follows the box as it is dragged and the new picture, drawn at the
+ * end for the same box, replaces it without a jump. `null` when there is no picture yet. Pure.
+ */
+export function heldPicture(shown: { width: number; height: number }, box: { width: number; height: number }): { width: number; height: number; left: number; top: number; scale: number } | null {
+  if (!(shown.width > 0 && shown.height > 0 && box.width > 0 && box.height > 0)) return null;
+  const scale = Math.min(box.width / shown.width, box.height / shown.height);
+  const width = shown.width * scale;
+  const height = shown.height * scale;
+  return { width, height, left: (box.width - width) / 2, top: (box.height - height) / 2, scale };
+}
+
+/**
  * The size of the render, in device pixels: the container's size times the pixel ratio (up to `maxPixelRatio`, 1 on a `lite` device), scaled down if the picture would have more than `maxPixels` pixels or a side longer than
  * `maxSize` (what the graphics card can make a texture of). Pure.
  */

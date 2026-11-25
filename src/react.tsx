@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
+import { ATTRIBUTION_ARROW, ATTRIBUTION_TEXT, attributionCss, resolveAttribution, type AttributionOptions } from "./attribution";
 import { createActivityGraph } from "./index";
 import { placeholderMarkup } from "./placeholder";
 import type { ActivityGraph, GraphOptions } from "./types";
@@ -85,5 +86,42 @@ export function ActivityGraphView({ className, style, aspect, placeholder = true
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: placeholderState === "fading" ? 0 : 1, transition: "opacity .4s ease" }} dangerouslySetInnerHTML={{ __html: placeholderMarkup({ weeks: options.weeks, strips: options.strips, aspect }) }} />
       )}
     </div>
+  );
+}
+
+export interface NeonAttributionProps extends AttributionOptions {
+  className?: string;
+  style?: CSSProperties;
+}
+
+/**
+ * The "Powered by Neon" link on its own, to put wherever your layout wants it (under the graph, in a footer, in a row of captions): an inline link, not placed over the graph (the `attribution` option is the same link in the
+ * graph's bottom right corner). It takes the text colour, faded, and is styled through the same variables (`--nag-attribution-fg`, `--nag-attribution-fg-hover`); `className` and `style` position it. Renders on the server too.
+ */
+export function NeonAttribution({ className, style, ...options }: NeonAttributionProps) {
+  const o = resolveAttribution({ ...options })!;
+  const id = `nag-link-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+  return (
+    <>
+      <style>{attributionCss(`#${id}`)}</style>
+      <a id={id} className={className} style={style} href={o.href} target={o.target} rel={o.target === "_blank" ? "noopener" : undefined} aria-label={o.text}>
+        <span className="nag-in">
+          <span className="nag-w">
+            {o.text === ATTRIBUTION_TEXT ? (
+              <>
+                Powered by <b>Neon</b>
+              </>
+            ) : (
+              o.text
+            )}
+          </span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={ATTRIBUTION_ARROW.strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {ATTRIBUTION_ARROW.paths.map((d) => (
+              <path key={d} d={d} />
+            ))}
+          </svg>
+        </span>
+      </a>
+    </>
   );
 }

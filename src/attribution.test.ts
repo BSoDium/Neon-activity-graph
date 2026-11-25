@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ATTRIBUTION_HREF, ATTRIBUTION_TEXT, resolveAttribution } from "./attribution";
+import { ATTRIBUTION_HREF, ATTRIBUTION_TEXT, attributionCss, resolveAttribution } from "./attribution";
 
 describe("resolveAttribution", () => {
   it("is off unless asked for", () => {
@@ -18,5 +18,14 @@ describe("resolveAttribution", () => {
   });
   it("ignores empty words", () => {
     expect(resolveAttribution({ text: "   " })?.text).toBe(ATTRIBUTION_TEXT);
+  });
+});
+
+describe("attributionCss", () => {
+  it("styles the link, its inner box, bold name, arrow, hover and focus, for the selector it is given, and sets nothing of the link's own display", () => {
+    const css = attributionCss("#x");
+    for (const rule of ["#x{border-radius", "#x .nag-in{display:inline-flex", "#x b{", "#x svg{", "#x:hover,#x:focus-visible{", "#x:hover .nag-w,#x:focus-visible .nag-w{text-decoration:underline", "#x:focus-visible{outline"]) expect(css).toContain(rule);
+    expect(css).toContain("--nag-attribution-fg");
+    expect(css.split("\n")[0]).not.toMatch(/display|position|margin/);
   });
 });
